@@ -112,6 +112,17 @@ if(RMLUI_FONT_ENGINE_ENABLED AND NOT TARGET rmlui_bgfx_sample_effects)
     target_link_libraries(rmlui_bgfx_sample_effects PRIVATE rmlui_shell)
 endif()
 
+if(RMLUI_FONT_ENGINE_ENABLED AND NOT TARGET rmlui_bgfx_sample_effects_probe)
+    add_executable(rmlui_bgfx_sample_effects_probe WIN32
+        "${CMAKE_CURRENT_LIST_DIR}/effects_probe/src/main.cpp"
+    )
+    set_common_target_options(rmlui_bgfx_sample_effects_probe)
+    target_compile_definitions(rmlui_bgfx_sample_effects_probe PRIVATE
+        RMLUI_BGFX_EFFECTS_PROBE_DATA_DIR="${CMAKE_CURRENT_LIST_DIR}/effects_probe/data"
+    )
+    target_link_libraries(rmlui_bgfx_sample_effects_probe PRIVATE rmlui_shell)
+endif()
+
 set(PROJECT_SOURCE_DIR "${_saved_project_source_dir}")
 
 set(_rmlui_bgfx_sample_targets
@@ -123,6 +134,7 @@ set(_rmlui_bgfx_sample_targets
     rmlui_bgfx_sample_demo
     rmlui_bgfx_sample_drag
     rmlui_bgfx_sample_effects
+    rmlui_bgfx_sample_effects_probe
     rmlui_bgfx_sample_harfbuzz
     rmlui_bgfx_sample_invaders
     rmlui_bgfx_sample_load_document

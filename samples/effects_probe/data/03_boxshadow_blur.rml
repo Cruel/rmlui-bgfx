@@ -1,0 +1,26 @@
+<rml>
+<head>
+<link type="text/rcss" href="common.rcss"/>
+<title>Effects Probe 03</title>
+<style>
+.shadow-blur {
+    box-shadow:
+        #f00f 40dp 30dp 25dp 0dp,
+        #00ff -40dp -30dp 45dp 0dp,
+        #0f08 -60dp 70dp 60dp 0dp,
+        #333a 0dp 0dp 30dp 15dp inset;
+    margin: 120dp;
+}
+.inset-only { box-shadow: #f4fd 10dp 5dp 5dp 3dp inset; }
+</style>
+</head>
+<body>
+<h1>Effects Probe 03: blurred box shadows</h1>
+<div class="content">
+    <div class="note">Expected: soft red, green, and blue outer shadows around the box plus a subtle inset shadow. Shadow textures should stay anchored to the box, not fill unrelated rectangles.</div>
+    <div class="box shadow-blur">Hello, do you feel the funk?</div>
+    <div class="row"><div class="label">inset only</div><div class="box inset-only">Inset shadow</div></div>
+    <div style="height: 500dp">Scroll filler</div>
+</div>
+</body>
+</rml>

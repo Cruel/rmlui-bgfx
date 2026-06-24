@@ -1,0 +1,28 @@
+<rml>
+<head>
+<link type="text/rcss" href="common.rcss"/>
+<title>Effects Probe 05</title>
+<style>
+.backdrop {
+    width: 360dp;
+    height: 110dp;
+    margin: 45dp 70dp;
+    background: #ffffff80;
+    border: 2dp #e8ffff;
+    border-radius: 35dp 8dp;
+    padding: 28dp;
+    backdrop-filter: blur(5dp);
+}
+</style>
+</head>
+<body>
+<h1>Effects Probe 05: backdrop-filter</h1>
+<div class="content">
+    <div class="note">Expected: only the area under the rounded translucent panel is blurred. The colored stripes outside that rounded area should stay sharp.</div>
+    <div class="stripes">
+        <div class="backdrop">Backdrop blur over striped background</div>
+    </div>
+    <div style="height: 560dp">Scroll filler</div>
+</div>
+</body>
+</rml>

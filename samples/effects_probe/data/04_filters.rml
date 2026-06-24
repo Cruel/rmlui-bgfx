@@ -1,0 +1,23 @@
+<rml>
+<head>
+<link type="text/rcss" href="common.rcss"/>
+<title>Effects Probe 04</title>
+<style>
+.blur { filter: blur(10dp); }
+.drop { filter: drop-shadow(#f33f 30dp 20dp 5dp); }
+.color { filter: sepia(80%) hue-rotate(260deg) saturate(200%); }
+.opacity { filter: opacity(0.35); }
+</style>
+</head>
+<body>
+<h1>Effects Probe 04: filters</h1>
+<div class="content">
+    <div class="note">Expected: each row affects only its own rounded box. No filter output should be copied into another row.</div>
+    <div class="row"><div class="label">blur</div><div class="box blur">Hello, do you feel the funk?</div></div>
+    <div class="row"><div class="label">drop-shadow</div><div class="box drop">Hello, do you feel the funk?</div></div>
+    <div class="row"><div class="label">color matrix</div><div class="box color">Hello, do you feel the funk?</div></div>
+    <div class="row"><div class="label">opacity</div><div class="box opacity">Hello, do you feel the funk?</div></div>
+    <div style="height: 560dp">Scroll filler</div>
+</div>
+</body>
+</rml>

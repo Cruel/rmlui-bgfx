@@ -1,0 +1,27 @@
+<rml>
+<head>
+<link type="text/rcss" href="common.rcss"/>
+<title>Effects Probe 07</title>
+<style>
+.trail { box-shadow: #f66 30dp 30dp 0 0, #c88 60dp 60dp 0 0, #baa 90dp 90dp 0 0; filter: opacity(1); }
+.blur { filter: blur(6dp); }
+.drop { filter: drop-shadow(#f33f 20dp 12dp 4dp); }
+.masked { decorator: horizontal-gradient(#f00 #ff0); mask-image: horizontal-gradient(#0000 #000f); }
+.backdrop { backdrop-filter: blur(4dp); background: #ffffff80; }
+</style>
+</head>
+<body>
+<h1>Effects Probe 07: scroll stress</h1>
+<div class="content">
+    <div class="note">Expected: scrolling through these rows should not allocate until framebuffer exhaustion and should not lock up. This is deliberately still smaller than the official effects sample.</div>
+    <div class="row"><div class="label">plain</div><div class="box">Plain baseline</div></div>
+    <div class="row"><div class="label">trail</div><div class="box trail">Shadow trail</div></div>
+    <div class="row"><div class="label">blur</div><div class="box blur">Blur filter</div></div>
+    <div class="row"><div class="label">drop-shadow</div><div class="box drop">Drop shadow</div></div>
+    <div class="row"><div class="label">mask-image</div><div class="box masked">Masked gradient</div></div>
+    <div class="stripes"><div class="box backdrop">Backdrop row</div></div>
+    <div class="row"><div class="label">plain after effects</div><div class="box">Final baseline</div></div>
+    <div style="height: 500dp">Scroll filler</div>
+</div>
+</body>
+</rml>
