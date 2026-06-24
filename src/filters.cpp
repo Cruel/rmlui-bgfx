@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdio>
 
 namespace rmlui_bgfx {
 
@@ -13,6 +14,58 @@ namespace {
                                            int texture_height)
 {
     return TextureRegion{texture, global_bounds, local_rect, texture_width, texture_height};
+}
+
+[[nodiscard]] const char* filter_kind_name(FilterKind kind)
+{
+    switch (kind) {
+    case FilterKind::Blur:
+        return "blur";
+    case FilterKind::DropShadow:
+        return "drop-shadow";
+    case FilterKind::Opacity:
+        return "opacity";
+    case FilterKind::ColorMatrix:
+        return "color-matrix";
+    case FilterKind::MaskImage:
+        return "mask-image";
+    case FilterKind::Invalid:
+        return "invalid";
+    }
+    return "unknown";
+}
+
+void trace_rect(const char* label, FbRect rect)
+{
+    std::fprintf(stderr, " %s=(%d,%d %dx%d)", label, rect.x, rect.y, rect.w, rect.h);
+}
+
+void trace_texture(const char* label, const TextureRegion& region)
+{
+    std::fprintf(stderr, " %s_tex=%u %s_size=%dx%d", label,
+                 bgfx::isValid(region.texture) ? region.texture.idx : 65535u, label,
+                 region.texture_width, region.texture_height);
+    trace_rect("global", region.global_bounds);
+    trace_rect("local", region.local_rect);
+}
+
+void trace_filter_chain(const BgfxFilterPipelineContext& ctx,
+                        const std::vector<FilterRecord>& filter_chain)
+{
+    if (!ctx.trace_filter_pipeline) {
+        return;
+    }
+    std::fprintf(stderr, "[rmlui-bgfx][filter] chain count=%zu", filter_chain.size());
+    for (const FilterRecord& filter : filter_chain) {
+        std::fprintf(stderr, " %s", filter_kind_name(filter.kind));
+        if (filter.kind == FilterKind::Blur || filter.kind == FilterKind::DropShadow) {
+            std::fprintf(stderr, " sigma=%.3f", filter.sigma);
+        }
+        if (filter.kind == FilterKind::DropShadow) {
+            std::fprintf(stderr, " offset=(%.3f,%.3f)", filter.offset[0], filter.offset[1]);
+        }
+    }
+    std::fprintf(stderr, "\n");
 }
 
 [[nodiscard]] CompositeOp make_composite_op(TextureRegion source,
@@ -215,13 +268,31 @@ RenderTargetRecord* BgfxFilterPipeline::safe_destination(const BgfxFilterPipelin
 bool BgfxFilterPipeline::composite(const BgfxFilterPipelineContext& ctx,
                                    const CompositeOp& op) const
 {
+    if (ctx.trace_filter_pipeline) {
+        std::fprintf(stderr, "[rmlui-bgfx][filter] composite name=%s source_tex=%u destination_fb=%u",
+                     op.name ? op.name : "<null>",
+                     bgfx::isValid(op.source.texture) ? op.source.texture.idx : 65535u,
+                     bgfx::isValid(op.destination) ? op.destination.idx : 65535u);
+        trace_rect("source_local", op.source.local_rect);
+        trace_rect("destination", op.destination_rect);
+        std::fprintf(stderr, "\n");
+    }
     if (!ctx.ensure_fullscreen_geometry || !ctx.ensure_fullscreen_geometry() ||
         !bgfx::isValid(op.source.texture)) {
+        if (ctx.trace_filter_pipeline) {
+            std::fprintf(stderr, "[rmlui-bgfx][filter] composite reject resources ensure=%d source_valid=%d\n",
+                         ctx.ensure_fullscreen_geometry ? 1 : 0,
+                         bgfx::isValid(op.source.texture) ? 1 : 0);
+        }
         return false;
     }
 
     if (bgfx::isValid(op.destination) &&
         texture_attached_to_framebuffer(ctx, op.source.texture, op.destination)) {
+        if (ctx.trace_filter_pipeline) {
+            std::fprintf(stderr, "[rmlui-bgfx][filter] composite reject feedback source_tex=%u destination_fb=%u\n",
+                         op.source.texture.idx, op.destination.idx);
+        }
         if (ctx.fail_frame) {
             ctx.fail_frame("composite feedback loop");
         }
@@ -237,12 +308,21 @@ bool BgfxFilterPipeline::composite(const BgfxFilterPipelineContext& ctx,
     auto pass =
         ctx.pass_builder.composite(op.destination, destination_rect, op.kind, op.name, op.reason);
     if (!pass) {
+        if (ctx.trace_filter_pipeline) {
+            std::fprintf(stderr, "[rmlui-bgfx][filter] composite reject no-pass error=%s\n",
+                         ctx.pass_builder.error() ? ctx.pass_builder.error() : "<none>");
+        }
         return false;
     }
     ctx.perf.add_composite(area(destination_rect), is_full_frame);
-    return ctx.draw_context.submit_composite(*pass, ctx.resources, op, source_rect,
-                                             destination_rect,
-                                             stencil_test_state_for_ref(op.stencil_ref));
+    const bool submitted = ctx.draw_context.submit_composite(*pass, ctx.resources, op, source_rect,
+                                                             destination_rect,
+                                                             stencil_test_state_for_ref(op.stencil_ref));
+    if (ctx.trace_filter_pipeline) {
+        std::fprintf(stderr, "[rmlui-bgfx][filter] composite submitted=%d view=%u\n",
+                     submitted ? 1 : 0, unsigned(pass->view));
+    }
+    return submitted;
 }
 
 FilterApplyResult
@@ -264,6 +344,12 @@ BgfxFilterPipeline::apply(const BgfxFilterPipelineContext& ctx, TextureRegion so
     result.output = source;
     result.output_bounds = render_bounds_from_framebuffer(source_valid_global_bounds, ctx.surface);
     result.valid_output_bounds = result.output_bounds;
+    if (ctx.trace_filter_pipeline) {
+        std::fprintf(stderr, "[rmlui-bgfx][filter] apply handles=%zu", filter_handles.size());
+        trace_texture("source", source);
+        trace_rect("allocation", source_bounds.framebuffer);
+        std::fprintf(stderr, "\n");
+    }
     if (filter_handles.empty()) {
         return result;
     }
@@ -272,6 +358,7 @@ BgfxFilterPipeline::apply(const BgfxFilterPipelineContext& ctx, TextureRegion so
     if (filter_chain.empty()) {
         return result;
     }
+    trace_filter_chain(ctx, filter_chain);
 
     const ColorOnlyFilterPlan color_only_plan = plan_color_only_filter_chain(filter_chain);
     if (color_only_plan.eligible) {
@@ -286,6 +373,11 @@ BgfxFilterPipeline::apply(const BgfxFilterPipelineContext& ctx, TextureRegion so
     const FbRect expanded = expand_bounds(source_valid_global_bounds, total_expansion);
     const FbRect clamped_work_bounds =
         clamp_to_surface(align_outward_for_render_target(expanded), ctx.surface);
+    if (ctx.trace_filter_pipeline) {
+        trace_rect("expanded", expanded);
+        trace_rect("work", clamped_work_bounds);
+        std::fprintf(stderr, "\n");
+    }
     if (is_empty(clamped_work_bounds)) {
         return {};
     }
@@ -295,6 +387,19 @@ BgfxFilterPipeline::apply(const BgfxFilterPipelineContext& ctx, TextureRegion so
         PostprocessTargetKind::Secondary, clamped_work_bounds, ctx.surface);
     if (!primary || !secondary) {
         return {};
+    }
+    if (ctx.trace_filter_pipeline) {
+        std::fprintf(stderr, "[rmlui-bgfx][filter] targets primary_tex=%u primary_fb=%u primary_size=%dx%d",
+                     bgfx::isValid(primary->color) ? primary->color.idx : 65535u,
+                     bgfx::isValid(primary->framebuffer) ? primary->framebuffer.idx : 65535u,
+                     primary->texture_width, primary->texture_height);
+        trace_rect("primary_bounds", primary->bounds);
+        std::fprintf(stderr, " secondary_tex=%u secondary_fb=%u secondary_size=%dx%d",
+                     bgfx::isValid(secondary->color) ? secondary->color.idx : 65535u,
+                     bgfx::isValid(secondary->framebuffer) ? secondary->framebuffer.idx : 65535u,
+                     secondary->texture_width, secondary->texture_height);
+        trace_rect("secondary_bounds", secondary->bounds);
+        std::fprintf(stderr, "\n");
     }
 
     if (filter_chain.size() == 1 && filter_chain[0].kind == FilterKind::MaskImage) {
@@ -360,6 +465,13 @@ BgfxFilterPipeline::apply(const BgfxFilterPipelineContext& ctx, TextureRegion so
     const FbRect copy_destination{source_copy_global.x - clamped_work_bounds.x,
                                   source_copy_global.y - clamped_work_bounds.y,
                                   source_copy_global.w, source_copy_global.h};
+    if (ctx.trace_filter_pipeline) {
+        std::fprintf(stderr, "[rmlui-bgfx][filter] copy");
+        trace_rect("source_global", source_copy_global);
+        trace_rect("source_local", source_copy_local);
+        trace_rect("destination", copy_destination);
+        std::fprintf(stderr, "\n");
+    }
     if (!composite(ctx, make_composite_op(
                             texture_region(source.texture, source_copy_global, source_copy_local,
                                            source.texture_width, source.texture_height),
@@ -438,8 +550,23 @@ BgfxFilterPipeline::apply(const BgfxFilterPipelineContext& ctx, TextureRegion so
         }
         case FilterKind::Blur: {
             const BlurShaderParameters blur = blur_shader_parameters(filter.sigma);
-            const auto bounds = filter_uv_bounds(current_valid_rect, primary->texture_width,
-                                                  primary->texture_height);
+            const auto bounds =
+                ctx.blur_sample_bounds_mode == BlurSampleBoundsMode::FullTexture
+                    ? std::array<float, 4>{0.0f, 0.0f, 1.0f, 1.0f}
+                    : filter_uv_bounds(current_valid_rect, primary->texture_width,
+                                       primary->texture_height);
+            if (ctx.trace_filter_pipeline) {
+                std::fprintf(stderr, "[rmlui-bgfx][filter] blur sigma=%.3f texel_scale=%.3f",
+                             filter.sigma, blur.texel_scale);
+                trace_rect("current_valid_rect", current_valid_rect);
+                std::fprintf(stderr, " current_tex=%u destination_tex=%u bounds=(%.6f,%.6f %.6f,%.6f) mode=%s\n",
+                             bgfx::isValid(current) ? current.idx : 65535u,
+                             bgfx::isValid(destination->color) ? destination->color.idx : 65535u,
+                             bounds[0], bounds[1], bounds[2], bounds[3],
+                             ctx.blur_sample_bounds_mode == BlurSampleBoundsMode::FullTexture
+                                 ? "full-texture"
+                                 : "source-bounds");
+            }
             float params[4] = {0.0f,
                                blur.texel_scale / float(std::max(destination->texture_height, 1)),
                                0.0f, 0.0f};
@@ -562,6 +689,12 @@ BgfxFilterPipeline::apply(const BgfxFilterPipelineContext& ctx, TextureRegion so
                                    clamped_work_bounds.w, clamped_work_bounds.h);
     result.output_bounds = render_bounds_from_framebuffer(clamped_work_bounds, ctx.surface);
     result.valid_output_bounds = render_bounds_from_framebuffer(current_valid_global, ctx.surface);
+    if (ctx.trace_filter_pipeline) {
+        std::fprintf(stderr, "[rmlui-bgfx][filter] result");
+        trace_texture("output", result.output);
+        trace_rect("valid", result.valid_output_bounds.framebuffer);
+        std::fprintf(stderr, "\n");
+    }
     return result;
 }
 

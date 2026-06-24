@@ -27,11 +27,13 @@ struct BgfxLayerCompositeContext {
     bool* root_requires_preservation = nullptr;
     SurfaceMetrics surface{};
     ScissorState scissor_state;
+    FilterLayerCompositePath filter_layer_composite_path = FilterLayerCompositePath::Gl3Compatible;
     BgfxFilterPipeline* filter_pipeline = nullptr;
     BgfxFilterPipelineContext filter_context;
     std::function<void(const char*)> fail_frame;
     std::function<FbRect(const LayerRecord&)> recorded_content_bounds;
     std::function<bool(Rml::LayerHandle, std::optional<FbRect>)> materialize_layer;
+    std::function<void(Rml::LayerHandle, const std::vector<size_t>&)> replay_clip_commands;
     std::function<RenderTargetRecord*(PostprocessTargetKind, const FbRect&)> ensure_target;
     std::function<bool(const CompositeOp&)> composite;
 };

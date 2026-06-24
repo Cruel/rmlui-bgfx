@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -60,6 +61,41 @@ namespace {
         return "rmlui_gradient";
     }
     return "unknown";
+}
+
+[[nodiscard]] rmlui_bgfx::FilterLayerCompositePath filter_layer_composite_path_from_env()
+{
+    const char* value = std::getenv("RMLUI_BGFX_FILTER_LAYER_COMPOSITE");
+    if (!value) {
+        return rmlui_bgfx::FilterLayerCompositePath::Gl3Compatible;
+    }
+    const std::string_view mode(value);
+    if (mode == "optimized" || mode == "bounded" || mode == "fast") {
+        return rmlui_bgfx::FilterLayerCompositePath::Optimized;
+    }
+    if (mode == "gl3" || mode == "gl3-compatible" || mode == "compat") {
+        return rmlui_bgfx::FilterLayerCompositePath::Gl3Compatible;
+    }
+    return rmlui_bgfx::FilterLayerCompositePath::Gl3Compatible;
+}
+
+[[nodiscard]] rmlui_bgfx::BlurSampleBoundsMode blur_sample_bounds_mode_from_env()
+{
+    const char* value = std::getenv("RMLUI_BGFX_BLUR_SAMPLE_BOUNDS");
+    if (!value) {
+        return rmlui_bgfx::BlurSampleBoundsMode::SourceBounds;
+    }
+    const std::string_view mode(value);
+    if (mode == "full" || mode == "full-texture" || mode == "texture") {
+        return rmlui_bgfx::BlurSampleBoundsMode::FullTexture;
+    }
+    return rmlui_bgfx::BlurSampleBoundsMode::SourceBounds;
+}
+
+[[nodiscard]] bool trace_filter_pipeline_from_env()
+{
+    const char* value = std::getenv("RMLUI_BGFX_FILTER_TRACE");
+    return value && value[0] != '\0' && value[0] != '0';
 }
 
 [[nodiscard]] std::vector<std::uint8_t> read_file(const std::string& path)
@@ -355,6 +391,9 @@ bool Backend::Initialize(const char* window_name, int width, int height, bool al
     config.shaders = &data->shaders;
     config.textures = &data->textures;
     config.diagnostics = &data->diagnostics;
+    config.filter_layer_composite_path = filter_layer_composite_path_from_env();
+    config.blur_sample_bounds_mode = blur_sample_bounds_mode_from_env();
+    config.trace_filter_pipeline = trace_filter_pipeline_from_env();
 
     data->render_interface = std::make_unique<rmlui_bgfx::RenderInterface>(config);
     if (!*data->render_interface) {

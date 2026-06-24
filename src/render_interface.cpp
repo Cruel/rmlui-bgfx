@@ -221,6 +221,9 @@ struct RenderInterface::Impl {
         : shader_provider(config.shaders), textures_provider(config.textures),
           diagnostics(config.diagnostics), material_shader_provider(config.material_shaders),
           perf_logger(config.perf_logger),
+          filter_layer_composite_path(config.filter_layer_composite_path),
+          blur_sample_bounds_mode(config.blur_sample_bounds_mode),
+          trace_filter_pipeline(config.trace_filter_pipeline),
           pass_builder(config.views.begin, config.views.end, &perf),
           perf_logging_enabled(config.enable_perf_logging)
     {
@@ -1192,6 +1195,10 @@ struct RenderInterface::Impl {
 
     BgfxFilterPipelineContext filter_context()
     {
+        // BgfxFilterPipelineContext carries a draw-resource snapshot. Ensure the fullscreen
+        // geometry exists before taking that snapshot, otherwise the filter copy/blur passes may
+        // validate the geometry in the pipeline but still submit with an invalid cached handle.
+        (void)ensure_fullscreen_geometry();
         return BgfxFilterPipelineContext{filters,
                                          textures,
                                          surface,
@@ -1200,6 +1207,8 @@ struct RenderInterface::Impl {
                                          draw_context,
                                          draw_resources(),
                                          perf,
+                                         blur_sample_bounds_mode,
+                                         trace_filter_pipeline,
                                          [this]() { return ensure_fullscreen_geometry(); },
                                          [this](const char* message) { fail_frame(message); }};
     }
@@ -1211,12 +1220,16 @@ struct RenderInterface::Impl {
             &root_requires_preservation,
             surface,
             scissor_state,
+            filter_layer_composite_path,
             &filter_pipeline,
             filter_context(),
             [this](const char* message) { fail_frame(message); },
             [this](const LayerRecord& layer) { return layer_recorded_content_bounds(layer); },
             [this](Rml::LayerHandle handle, std::optional<FbRect> required_bounds) {
                 return materialize_layer(handle, required_bounds);
+            },
+            [this](Rml::LayerHandle handle, const std::vector<size_t>& commands) {
+                replay_clip_commands(handle, commands);
             },
             [this](PostprocessTargetKind kind, const FbRect& bounds) {
                 return ensure_postprocess_target(kind, bounds);
@@ -1760,6 +1773,9 @@ struct RenderInterface::Impl {
     const char* direct_base_fallback_reason = nullptr;
     const char* logged_base_fallback_reason = nullptr;
     bool base_direct_compatibility_enabled = false;
+    FilterLayerCompositePath filter_layer_composite_path = FilterLayerCompositePath::Gl3Compatible;
+    BlurSampleBoundsMode blur_sample_bounds_mode = BlurSampleBoundsMode::SourceBounds;
+    bool trace_filter_pipeline = false;
 
     // Cached stencil format (probed once to avoid getInternalformatParameter spam).
     mutable bool stencil_cached = false;

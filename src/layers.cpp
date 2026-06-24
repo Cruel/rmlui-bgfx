@@ -54,6 +54,140 @@ make_layer_composite_op(TextureRegion source, bgfx::FrameBufferHandle destinatio
     return Rml::Rectanglei::FromPositionSize({left, top}, {right - left, bottom - top});
 }
 
+[[nodiscard]] std::optional<FbRect>
+filter_window_bounds(const BgfxLayerCompositeContext& ctx)
+{
+    if (ctx.scissor_state.enabled) {
+        const Rml::Rectanglei scissor =
+            clamp_scissor_to_surface(ctx.scissor_state.region, ctx.surface);
+        if (scissor.Width() <= 0 || scissor.Height() <= 0) {
+            return std::nullopt;
+        }
+        return FbRect{scissor.Left(), scissor.Top(), scissor.Width(), scissor.Height()};
+    }
+    return FbRect{0, 0, ctx.surface.framebuffer_width, ctx.surface.framebuffer_height};
+}
+
+[[nodiscard]] TextureRegion subregion(TextureRegion region, FbRect global_bounds)
+{
+    const FbRect clipped = intersect(global_bounds, region.global_bounds);
+    if (is_empty(clipped)) {
+        return {};
+    }
+    region.local_rect = {region.local_rect.x + clipped.x - region.global_bounds.x,
+                         region.local_rect.y + clipped.y - region.global_bounds.y, clipped.w,
+                         clipped.h};
+    region.global_bounds = clipped;
+    return region;
+}
+
+[[nodiscard]] bool composite_layers_gl3_compatible_filtered(
+    BgfxLayerSystem& layer_system, const BgfxLayerCompositeContext& ctx, Rml::LayerHandle source,
+    Rml::LayerHandle destination, Rml::BlendMode blend_mode,
+    Rml::Span<const Rml::CompiledFilterHandle> filters)
+{
+    if (filters.empty()) {
+        return false;
+    }
+    const std::optional<FbRect> window = filter_window_bounds(ctx);
+    if (!window || is_empty(*window)) {
+        return true;
+    }
+
+    LayerRecord* source_layer = layer_system.layer_for_handle(source);
+    LayerRecord* destination_layer = layer_system.layer_for_handle(destination);
+    if (!source_layer || !destination_layer) {
+        if (ctx.fail_frame) {
+            ctx.fail_frame("GL3-compatible CompositeLayers received invalid layer handles");
+        }
+        return true;
+    }
+
+    // This is deliberately separate from the optimized path. It mirrors the important GL3
+    // semantic: filtered layer compositing operates over the current filter/scissor window,
+    // not only over the tight recorded source-content bounds.
+    if (!ctx.materialize_layer(source, *window)) {
+        if (ctx.fail_frame) {
+            ctx.fail_frame("GL3-compatible CompositeLayers failed to materialize source layer");
+        }
+        return true;
+    }
+    source_layer = layer_system.materialized_layer_for_handle(source, ctx.direct_base_requested);
+    if (!source_layer) {
+        if (ctx.fail_frame) {
+            ctx.fail_frame("GL3-compatible CompositeLayers received unmaterialized source layer");
+        }
+        return true;
+    }
+
+    const bool source_clip_active = source_layer->clip_mask_enabled && ctx.replay_clip_commands &&
+                                    !source_layer->clip_commands.empty();
+    const uint8_t source_clip_ref = source_layer->stencil_ref;
+    const std::vector<size_t> source_clip_commands =
+        source_clip_active ? source_layer->clip_commands : std::vector<size_t>{};
+
+    const FbRect source_window = intersect(*window, source_layer->bounds.framebuffer);
+    if (is_empty(source_window)) {
+        return true;
+    }
+    const FilterApplyResult filtered = ctx.filter_pipeline->apply(
+        ctx.filter_context,
+        make_texture_region(source_layer->color, source_window,
+                            local_rect_for_layer(source_window, *source_layer),
+                            source_layer->texture_width, source_layer->texture_height),
+        source_layer->bounds, filters);
+    if (!bgfx::isValid(filtered.output.texture)) {
+        return true;
+    }
+
+    const FbRect final_global = intersect(filtered.output_bounds.framebuffer, *window);
+    if (is_empty(final_global)) {
+        return true;
+    }
+    if (!ctx.materialize_layer(destination, final_global)) {
+        if (ctx.fail_frame) {
+            ctx.fail_frame("GL3-compatible CompositeLayers failed to materialize destination layer");
+        }
+        return true;
+    }
+    destination_layer = layer_system.materialized_layer_for_handle(destination, ctx.direct_base_requested);
+    if (!destination_layer) {
+        if (ctx.fail_frame) {
+            ctx.fail_frame("GL3-compatible CompositeLayers received unmaterialized destination layer");
+        }
+        return true;
+    }
+
+    if (source_clip_active) {
+        ctx.replay_clip_commands(destination, source_clip_commands);
+    }
+
+    TextureRegion final_source = subregion(filtered.output, final_global);
+    if (!bgfx::isValid(final_source.texture) || is_empty(final_source.local_rect)) {
+        return true;
+    }
+    const FbRect destination_bounds = local_rect_for_layer(final_global, *destination_layer);
+    if (is_empty(destination_bounds)) {
+        return true;
+    }
+
+    const bool destination_clip = destination_layer->clip_mask_enabled || source_clip_active;
+    const uint8_t destination_stencil_ref =
+        source_clip_active ? source_clip_ref : destination_layer->stencil_ref;
+    const ScissorState destination_scissor =
+        scissor_local_to_layer(ctx.scissor_state, destination_layer->bounds);
+    if (!ctx.composite(make_layer_composite_op(
+            final_source, destination_layer->framebuffer, blend_mode, destination_scissor,
+            destination_clip, destination_stencil_ref, RmlUiPassKind::LayerComposite,
+            RmlUiPassReason::LayerComposite, "RmlUi.GL3CompatibleLayerComposite",
+            destination_bounds, filtered.composite_filter))) {
+        if (ctx.fail_frame) {
+            ctx.fail_frame("GL3-compatible CompositeLayers composite failed");
+        }
+    }
+    return true;
+}
+
 } // namespace
 
 BgfxLayerSystem::BgfxLayerSystem(BgfxTargetCache& target_cache) : m_target_cache(&target_cache) {}
@@ -278,6 +412,12 @@ void BgfxLayerSystem::composite_layers(const BgfxLayerCompositeContext& ctx,
     }
     if (!ctx.filter_pipeline || !ctx.recorded_content_bounds || !ctx.materialize_layer ||
         !ctx.ensure_target || !ctx.composite) {
+        return;
+    }
+    if (ctx.filter_layer_composite_path == FilterLayerCompositePath::Gl3Compatible &&
+        !filters.empty() &&
+        composite_layers_gl3_compatible_filtered(*this, ctx, source, destination, blend_mode,
+                                                 filters)) {
         return;
     }
     if (ctx.scissor_state.enabled) {

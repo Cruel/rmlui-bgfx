@@ -22,6 +22,8 @@ struct BgfxFilterPipelineContext {
     BgfxDrawContext& draw_context;
     BgfxDrawResources resources;
     PerfCounters& perf;
+    BlurSampleBoundsMode blur_sample_bounds_mode = BlurSampleBoundsMode::SourceBounds;
+    bool trace_filter_pipeline = false;
     std::function<bool()> ensure_fullscreen_geometry;
     std::function<void(const char*)> fail_frame;
 };

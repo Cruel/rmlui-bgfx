@@ -83,6 +83,8 @@ enum class ProbeKind {
     InsetBlurTexture,
     InsetNoBlurTexture,
     InsetChildCompositeTexture,
+    InsetBlurNoClipTexture,
+    InsetBlurInverseOnlyTexture,
 };
 
 struct ProbeCase {
@@ -109,6 +111,8 @@ constexpr ProbeCase kCases[] = {
     {"13", "", "manual RenderManager inset blur callback texture probe", ProbeKind::InsetBlurTexture},
     {"14", "", "manual RenderManager inset callback texture probe without blur", ProbeKind::InsetNoBlurTexture},
     {"15", "", "manual RenderManager inset child-layer composite without blur", ProbeKind::InsetChildCompositeTexture},
+    {"16", "", "manual RenderManager inset child-layer blur without clip masks", ProbeKind::InsetBlurNoClipTexture},
+    {"17", "", "manual RenderManager inset child-layer blur with inverse clip only", ProbeKind::InsetBlurInverseOnlyTexture},
 };
 
 void print_cases(const char* executable)
@@ -386,8 +390,15 @@ Rml::Geometry make_inset_shadow_geometry(Rml::RenderManager& render_manager,
     return render_manager.MakeGeometry(std::move(mesh));
 }
 
+enum class InsetClipMode {
+    FullInset,
+    NoClip,
+    InverseOnly,
+};
+
 CallbackTextureProbe compile_inset_texture_probe(Rml::RenderManager& render_manager,
-                                                bool use_child_layer, bool blur_enabled)
+                                                bool use_child_layer, bool blur_enabled,
+                                                InsetClipMode clip_mode = InsetClipMode::FullInset)
 {
     CallbackTextureProbe probe;
     Rml::Mesh mesh;
@@ -396,7 +407,7 @@ CallbackTextureProbe compile_inset_texture_probe(Rml::RenderManager& render_mana
                                      {1.0f, 1.0f});
     probe.textured_quad = render_manager.MakeGeometry(std::move(mesh));
     probe.texture = render_manager.MakeCallbackTexture(
-        [use_child_layer, blur_enabled](const Rml::CallbackTextureInterface& texture_interface) -> bool {
+        [use_child_layer, blur_enabled, clip_mode](const Rml::CallbackTextureInterface& texture_interface) -> bool {
             Rml::RenderManager& callback_render_manager = texture_interface.GetRenderManager();
             const Rml::RenderState initial_state = callback_render_manager.GetState();
             const Rml::Vector2f box_offset{55.0f, 45.0f};
@@ -423,10 +434,15 @@ CallbackTextureProbe compile_inset_texture_probe(Rml::RenderManager& render_mana
                 callback_render_manager.PushLayer();
             }
 
-            callback_render_manager.SetClipMask(Rml::ClipMaskOperation::SetInverse, &inset_shadow,
-                                                box_offset);
+            if (clip_mode == InsetClipMode::FullInset || clip_mode == InsetClipMode::InverseOnly) {
+                callback_render_manager.SetClipMask(Rml::ClipMaskOperation::SetInverse,
+                                                    &inset_shadow, box_offset);
+            }
             padding.Render(box_offset);
-            callback_render_manager.SetClipMask(Rml::ClipMaskOperation::Set, &padding, box_offset);
+            if (clip_mode == InsetClipMode::FullInset) {
+                callback_render_manager.SetClipMask(Rml::ClipMaskOperation::Set, &padding,
+                                                    box_offset);
+            }
 
             if (use_child_layer) {
                 Rml::FilterHandleList filters;
@@ -464,6 +480,16 @@ CallbackTextureProbe compile_inset_no_blur_texture_probe(Rml::RenderManager& ren
 CallbackTextureProbe compile_inset_child_composite_texture_probe(Rml::RenderManager& render_manager)
 {
     return compile_inset_texture_probe(render_manager, true, false);
+}
+
+CallbackTextureProbe compile_inset_blur_no_clip_texture_probe(Rml::RenderManager& render_manager)
+{
+    return compile_inset_texture_probe(render_manager, true, true, InsetClipMode::NoClip);
+}
+
+CallbackTextureProbe compile_inset_blur_inverse_only_texture_probe(Rml::RenderManager& render_manager)
+{
+    return compile_inset_texture_probe(render_manager, true, true, InsetClipMode::InverseOnly);
 }
 
 int run(int argc, char** argv)
@@ -537,6 +563,10 @@ int run(int argc, char** argv)
         callback_probe = compile_inset_no_blur_texture_probe(context->GetRenderManager());
     } else if (probe_case->kind == ProbeKind::InsetChildCompositeTexture) {
         callback_probe = compile_inset_child_composite_texture_probe(context->GetRenderManager());
+    } else if (probe_case->kind == ProbeKind::InsetBlurNoClipTexture) {
+        callback_probe = compile_inset_blur_no_clip_texture_probe(context->GetRenderManager());
+    } else if (probe_case->kind == ProbeKind::InsetBlurInverseOnlyTexture) {
+        callback_probe = compile_inset_blur_inverse_only_texture_probe(context->GetRenderManager());
     } else if (Rml::ElementDocument* document = context->LoadDocument(probe_case->file.data())) {
         document->Show();
     } else {
@@ -555,7 +585,9 @@ int run(int argc, char** argv)
                     probe_case->kind == ProbeKind::RoundedShadowTexture ||
                     probe_case->kind == ProbeKind::InsetBlurTexture ||
                     probe_case->kind == ProbeKind::InsetNoBlurTexture ||
-                    probe_case->kind == ProbeKind::InsetChildCompositeTexture) &&
+                    probe_case->kind == ProbeKind::InsetChildCompositeTexture ||
+                    probe_case->kind == ProbeKind::InsetBlurNoClipTexture ||
+                    probe_case->kind == ProbeKind::InsetBlurInverseOnlyTexture) &&
                    renderer) {
             render_callback_texture_probe(*renderer, callback_probe);
         } else {
