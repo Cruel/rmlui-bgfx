@@ -1,0 +1,8 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+find_dependency(bgfx CONFIG)
+find_dependency(RmlUi CONFIG)
+
+include("${CMAKE_CURRENT_LIST_DIR}/RmlUiBgfxShaders.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/rmlui_bgfxTargets.cmake")

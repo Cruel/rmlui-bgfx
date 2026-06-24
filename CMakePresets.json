@@ -1,0 +1,62 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "linux-debug",
+      "displayName": "Linux Debug",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/linux-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+        "VCPKG_MANIFEST_DIR": "${sourceDir}",
+        "VCPKG_MANIFEST_FEATURES": "tests;shader-tools",
+        "VCPKG_INSTALLED_DIR": "${sourceDir}/build/linux-debug/vcpkg_installed",
+        "RMLUI_BGFX_BUILD_TESTS": "ON",
+        "RMLUI_BGFX_ENABLE_RENDER_PERF": "ON"
+      }
+    },
+    {
+      "name": "linux-release",
+      "displayName": "Linux Release",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/linux-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+        "VCPKG_MANIFEST_DIR": "${sourceDir}",
+        "VCPKG_MANIFEST_FEATURES": "tests;shader-tools",
+        "VCPKG_INSTALLED_DIR": "${sourceDir}/build/linux-release/vcpkg_installed",
+        "RMLUI_BGFX_BUILD_TESTS": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "linux-debug",
+      "configurePreset": "linux-debug"
+    },
+    {
+      "name": "linux-release",
+      "configurePreset": "linux-release"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "linux-debug",
+      "configurePreset": "linux-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "linux-release",
+      "configurePreset": "linux-release",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}
