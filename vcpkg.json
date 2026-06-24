@@ -27,6 +27,17 @@
           ]
         }
       ]
+    },
+    "samples": {
+      "description": "Build the upstream RmlUi samples against the rmlui-bgfx SDL/bgfx backend.",
+      "dependencies": [
+        "sdl3",
+        "stb",
+        "lua",
+        "harfbuzz",
+        "rlottie",
+        "lunasvg"
+      ]
     }
   }
 }

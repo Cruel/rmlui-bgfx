@@ -31,6 +31,22 @@
         "VCPKG_INSTALLED_DIR": "${sourceDir}/build/linux-release/vcpkg_installed",
         "RMLUI_BGFX_BUILD_TESTS": "ON"
       }
+    },
+    {
+      "name": "linux-samples",
+      "displayName": "Linux Samples",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/linux-samples",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+        "VCPKG_MANIFEST_DIR": "${sourceDir}",
+        "VCPKG_MANIFEST_FEATURES": "shader-tools;samples",
+        "VCPKG_INSTALLED_DIR": "${sourceDir}/build/linux-samples/vcpkg_installed",
+        "RMLUI_BGFX_BUILD_TESTS": "OFF",
+        "RMLUI_BGFX_BUILD_SAMPLES": "ON"
+      }
     }
   ],
   "buildPresets": [
@@ -41,6 +57,13 @@
     {
       "name": "linux-release",
       "configurePreset": "linux-release"
+    },
+    {
+      "name": "samples-all",
+      "configurePreset": "linux-samples",
+      "targets": [
+        "samples-all"
+      ]
     }
   ],
   "testPresets": [

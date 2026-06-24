@@ -1,0 +1,89 @@
+name: Build
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    name: Linux
+    runs-on: ubuntu-24.04
+
+    env:
+      VCPKG_ROOT: ${{ github.workspace }}/.vcpkg
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/.vcpkg-cache
+
+    steps:
+      - name: Checkout rmlui-bgfx
+        uses: actions/checkout@v4
+
+      - name: Checkout RmlUi samples source
+        uses: actions/checkout@v4
+        with:
+          repository: mikke89/RmlUi
+          path: external/RmlUi
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            autoconf \
+            automake \
+            build-essential \
+            cmake \
+            curl \
+            git \
+            libegl1-mesa-dev \
+            libgl1-mesa-dev \
+            libibus-1.0-dev \
+            libtool \
+            libwayland-dev \
+            libx11-dev \
+            libxcursor-dev \
+            libxext-dev \
+            libxi-dev \
+            libxinerama-dev \
+            libxkbcommon-dev \
+            libxrandr-dev \
+            m4 \
+            ninja-build \
+            pkg-config \
+            python3 \
+            tar \
+            unzip \
+            zip
+
+      - name: Restore vcpkg binary cache
+        uses: actions/cache@v4
+        with:
+          path: .vcpkg-cache
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-
+
+      - name: Bootstrap vcpkg
+        run: |
+          git clone --depth 1 https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
+          "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+          mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
+
+      - name: Configure renderer
+        run: cmake --preset linux-release
+
+      - name: Build renderer
+        run: cmake --build --preset linux-release --parallel 2
+
+      - name: Run renderer tests
+        run: ctest --preset linux-release
+
+      - name: Configure samples
+        run: cmake --preset linux-samples -DRMLUI_BGFX_RMLUI_SOURCE_DIR=${{ github.workspace }}/external/RmlUi
+
+      - name: Build samples
+        run: cmake --build --preset samples-all --parallel 2
