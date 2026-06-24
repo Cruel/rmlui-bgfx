@@ -85,7 +85,7 @@ bool BgfxDrawContext::submit_geometry(const RmlUiPass& pass, const BgfxDrawResou
     bgfx::setTexture(0, resources.sampler, state.texture);
     bgfx::setState(resources.blend_state);
     if (state.clip_mask_enabled) {
-        bgfx::setStencil(state.stencil_state);
+        bgfx::setStencil(state.stencil_state, state.stencil_state);
     }
     bgfx::submit(pass.view, resources.rmlui_program);
     return true;
@@ -140,7 +140,7 @@ bool BgfxDrawContext::submit_gradient(const RmlUiPass& pass, const BgfxDrawResou
     bgfx::setUniform(resources.gradient_stop_meta_uniform, stop_positions.data(), 4);
     bgfx::setState(resources.blend_state);
     if (state.clip_mask_enabled) {
-        bgfx::setStencil(state.stencil_state);
+        bgfx::setStencil(state.stencil_state, state.stencil_state);
     }
     bgfx::submit(pass.view, resources.gradient_program);
     return true;
@@ -183,7 +183,7 @@ bool BgfxDrawContext::submit_composite(const RmlUiPass& pass, const BgfxDrawReso
                                : resources.blend_state;
     bgfx::setState(state);
     if (op.apply_destination_stencil) {
-        bgfx::setStencil(stencil_state);
+        bgfx::setStencil(stencil_state, stencil_state);
     }
     bgfx::submit(pass.view, program);
     return true;
@@ -306,7 +306,7 @@ bool BgfxDrawContext::submit_stencil_decrement(const RmlUiPass& pass,
     const float bounds[4] = {0.0f, 0.0f, 1.0f, 1.0f};
     bgfx::setUniform(resources.texcoord_bounds_uniform, bounds);
     bgfx::setState(BGFX_STATE_NONE);
-    bgfx::setStencil(stencil_state);
+    bgfx::setStencil(stencil_state, stencil_state);
     bgfx::submit(pass.view, resources.composite_program);
     return true;
 }
@@ -339,7 +339,7 @@ bool BgfxDrawContext::submit_clip_mask(const RmlUiPass& pass, const BgfxDrawReso
     bgfx::setUniform(resources.translate_uniform, translate);
     bgfx::setTexture(0, resources.sampler, resources.white_texture);
     bgfx::setState(BGFX_STATE_NONE);
-    bgfx::setStencil(state.stencil_state);
+    bgfx::setStencil(state.stencil_state, state.stencil_state);
     bgfx::submit(pass.view, resources.rmlui_program);
     return true;
 }

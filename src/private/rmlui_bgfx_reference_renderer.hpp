@@ -87,6 +87,7 @@ struct ReferenceLayer {
     float projection[16]{};
     bool clip_mask_enabled = false;
     uint8_t stencil_ref = 1;
+    std::vector<size_t> clip_commands;
 };
 
 struct ReferenceTextureRegion {
@@ -189,7 +190,7 @@ private:
                           uint32_t stencil_state, const ScissorState& scissor,
                           bool command_transform_valid, const std::array<float, 16>& command_transform);
     void apply_clip_command(const ReferenceClipCommand& command, bool record_on_layer);
-    void replay_clip_commands(Rml::LayerHandle layer, const std::vector<ReferenceClipCommand>& commands);
+    void replay_clip_commands(Rml::LayerHandle layer, const std::vector<size_t>& commands);
 
     [[nodiscard]] ReferenceTextureRegion layer_region(const ReferenceLayer& layer) const;
     [[nodiscard]] ReferenceTextureRegion target_region(const ReferenceTarget& target) const;

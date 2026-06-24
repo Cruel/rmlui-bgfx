@@ -411,6 +411,12 @@ Rml::LayerHandle BgfxReferenceRenderer::push_layer()
         return Rml::LayerHandle(LayerPoolPlan::InvalidLayer);
     }
     ReferenceLayer* parent = active_layer();
+    const Rml::LayerHandle parent_handle = parent ? parent->handle : Rml::LayerHandle(0);
+    const bool parent_clip_mask_enabled = parent ? parent->clip_mask_enabled : false;
+    const uint8_t parent_stencil_ref = parent ? parent->stencil_ref : 1;
+    const std::vector<size_t> inherited_clip_commands =
+        parent && parent_clip_mask_enabled ? parent->clip_commands : std::vector<size_t>{};
+
     const Rml::LayerHandle handle = Rml::LayerHandle(m_layer_pool.push());
     if (uint32_t(handle) == LayerPoolPlan::InvalidLayer) {
         return handle;
@@ -420,24 +426,25 @@ Rml::LayerHandle BgfxReferenceRenderer::push_layer()
     }
     ReferenceLayer& layer = m_layers[size_t(handle)];
     layer.handle = handle;
-    layer.clip_mask_enabled = parent ? parent->clip_mask_enabled : false;
-    layer.stencil_ref = parent ? parent->stencil_ref : 1;
+    layer.clip_mask_enabled = parent_clip_mask_enabled;
+    layer.stencil_ref = parent_stencil_ref;
+    layer.clip_commands.clear();
     if (!ensure_layer_target(layer)) {
         fail_frame("reference renderer failed to create pushed layer target");
         return handle;
     }
     clear_layer(layer, "RmlUi.ReferenceLayerClear");
-    std::vector<ReferenceClipCommand> inherited = m_clip_commands;
     m_layer_stack.push_back(handle);
-    if (!inherited.empty()) {
-        replay_clip_commands(handle, inherited);
+    if (!inherited_clip_commands.empty()) {
+        replay_clip_commands(handle, inherited_clip_commands);
     }
     if (m_ctx.perf) {
         m_ctx.perf->add_layer_push();
         m_ctx.perf->add_full_frame_child_layer();
     }
-    trace("push layer=%zu parent=%zu target=full-frame %dx%d", size_t(handle),
-          parent ? size_t(parent->handle) : size_t(0), layer.width, layer.height);
+    trace("push layer=%zu parent=%zu inherited_clips=%zu target=full-frame %dx%d",
+          size_t(handle), size_t(parent_handle), inherited_clip_commands.size(), layer.width,
+          layer.height);
     return handle;
 }
 
@@ -456,10 +463,23 @@ void BgfxReferenceRenderer::composite_layers(
         return;
     }
 
+    FbRect work_rect = full_frame_rect(m_surface);
+    if (m_scissor_enabled) {
+        const Rml::Rectanglei save_bounds = current_save_bounds();
+        work_rect = {save_bounds.Left(), save_bounds.Top(), save_bounds.Width(), save_bounds.Height()};
+    }
+    if (is_empty(work_rect)) {
+        return;
+    }
+
     ReferenceTextureRegion source_region = layer_region(*source_layer);
+    source_region.global_bounds = work_rect;
+    source_region.local_rect = {work_rect.x - source_layer->bounds.framebuffer.x,
+                                work_rect.y - source_layer->bounds.framebuffer.y, work_rect.w,
+                                work_rect.h};
     CompositeFilterState composite_filter{};
     if (source == destination && !filters.empty()) {
-        ReferenceTarget* scratch = ensure_target(PostprocessTargetKind::Scratch, full_frame_rect(m_surface));
+        ReferenceTarget* scratch = ensure_target(PostprocessTargetKind::Scratch, work_rect);
         if (!scratch) {
             fail_frame("reference renderer failed to allocate scratch target");
             return;
@@ -467,7 +487,7 @@ void BgfxReferenceRenderer::composite_layers(
         if (!submit_composite(source_region, scratch->framebuffer, Rml::BlendMode::Replace,
                               ScissorState{false, {}}, false, 1, RmlUiPassKind::Copy,
                               RmlUiPassReason::LayerScratchCopy,
-                              "RmlUi.ReferenceLayerScratchCopy", full_frame_rect(m_surface))) {
+                              "RmlUi.ReferenceLayerScratchCopy", {0, 0, scratch->width, scratch->height})) {
             fail_frame("reference renderer scratch copy failed");
             return;
         }
@@ -482,17 +502,30 @@ void BgfxReferenceRenderer::composite_layers(
         }
     }
 
-    trace("composite source=%zu destination=%zu filters=%zu src_tex=%u src=%dx%d dst=%dx%d",
-          size_t(source), size_t(destination), size_t(filters.size()),
+    bool apply_composite_stencil = destination_layer->clip_mask_enabled;
+    uint8_t composite_stencil_ref = destination_layer->stencil_ref;
+    if (!apply_composite_stencil && source_layer->clip_mask_enabled &&
+        !source_layer->clip_commands.empty()) {
+        replay_clip_commands(destination_layer->handle, source_layer->clip_commands);
+        apply_composite_stencil = true;
+        composite_stencil_ref = destination_layer->stencil_ref;
+        trace("replay source clip for composite source=%zu destination=%zu clips=%zu ref=%u",
+              size_t(source), size_t(destination), source_layer->clip_commands.size(),
+              unsigned(composite_stencil_ref));
+    }
+
+    trace("composite source=%zu destination=%zu filters=%zu work=(%d,%d %dx%d) src_tex=%u src=%dx%d dst=%dx%d stencil=%d ref=%u",
+          size_t(source), size_t(destination), size_t(filters.size()), work_rect.x, work_rect.y,
+          work_rect.w, work_rect.h,
           bgfx::isValid(source_region.texture) ? source_region.texture.idx : 65535u,
           source_region.texture_width, source_region.texture_height, destination_layer->width,
-          destination_layer->height);
+          destination_layer->height, apply_composite_stencil ? 1 : 0,
+          unsigned(composite_stencil_ref));
     if (!submit_composite(source_region, destination_layer->framebuffer, blend_mode,
                           ScissorState{m_scissor_enabled, m_scissor_region},
-                          destination_layer->clip_mask_enabled, destination_layer->stencil_ref,
+                          apply_composite_stencil, composite_stencil_ref,
                           RmlUiPassKind::LayerComposite, RmlUiPassReason::LayerComposite,
-                          "RmlUi.ReferenceComposite", full_frame_rect(m_surface),
-                          composite_filter)) {
+                          "RmlUi.ReferenceComposite", work_rect, composite_filter)) {
         fail_frame("reference renderer CompositeLayers composite failed");
     }
 }
@@ -535,9 +568,9 @@ Rml::TextureHandle BgfxReferenceRenderer::save_layer_as_texture()
                       {bounds.Width(), bounds.Height()},
                       RenderBounds{framebuffer_to_logical(global_bounds, m_surface), global_bounds},
                       TextureOwnership::SavedLayer});
-    trace("save_texture layer=%zu bounds=(%d,%d %dx%d) texture=%u", size_t(layer->handle),
-          global_bounds.x, global_bounds.y, global_bounds.w, global_bounds.h,
-          bgfx::isValid(saved) ? saved.idx : 65535u);
+    trace("save_texture layer=%zu bounds=(%d,%d %dx%d) rml_texture=%zu bgfx_tex=%u",
+          size_t(layer->handle), global_bounds.x, global_bounds.y, global_bounds.w,
+          global_bounds.h, size_t(handle), bgfx::isValid(saved) ? saved.idx : 65535u);
     return handle;
 }
 
@@ -959,7 +992,7 @@ void BgfxReferenceRenderer::submit_clip_mask(
     if (is_empty(work)) {
         return;
     }
-    auto pass = m_ctx.pass_builder->geometry(layer->framebuffer, work.w, work.h,
+    auto pass = m_ctx.pass_builder->geometry(layer->framebuffer, layer->width, layer->height,
                                              "RmlUi.ReferenceClipMask",
                                              RmlUiPassReason::ClipMask);
     if (!pass) {
@@ -1010,20 +1043,23 @@ void BgfxReferenceRenderer::apply_clip_command(const ReferenceClipCommand& comma
     }
     if (ReferenceLayer* layer = active_layer()) {
         layer->stencil_ref = command.next_ref;
-    }
-    if (record_on_layer) {
-        m_clip_commands.push_back(command);
+        if (record_on_layer) {
+            layer->clip_commands.push_back(m_clip_commands.size());
+            m_clip_commands.push_back(command);
+        }
     }
 }
 
-void BgfxReferenceRenderer::replay_clip_commands(
-    Rml::LayerHandle layer, const std::vector<ReferenceClipCommand>& commands)
+void BgfxReferenceRenderer::replay_clip_commands(Rml::LayerHandle layer,
+                                                 const std::vector<size_t>& commands)
 {
     const std::vector<Rml::LayerHandle> saved_stack = m_layer_stack;
     m_layer_stack.clear();
     m_layer_stack.push_back(layer);
-    for (const ReferenceClipCommand& command : commands) {
-        apply_clip_command(command, false);
+    for (size_t index : commands) {
+        if (index < m_clip_commands.size()) {
+            apply_clip_command(m_clip_commands[index], false);
+        }
     }
     m_layer_stack = saved_stack;
 }
@@ -1159,9 +1195,11 @@ ReferenceTextureRegion BgfxReferenceRenderer::apply_filters(
         return source;
     }
 
-    ReferenceTarget* primary = ensure_target(PostprocessTargetKind::Primary, full_frame_rect(m_surface));
-    ReferenceTarget* secondary = ensure_target(PostprocessTargetKind::Secondary, full_frame_rect(m_surface));
-    ReferenceTarget* tertiary = ensure_target(PostprocessTargetKind::Tertiary, full_frame_rect(m_surface));
+    const FbRect work_rect = is_empty(source.global_bounds) ? full_frame_rect(m_surface)
+                                                            : source.global_bounds;
+    ReferenceTarget* primary = ensure_target(PostprocessTargetKind::Primary, work_rect);
+    ReferenceTarget* secondary = ensure_target(PostprocessTargetKind::Secondary, work_rect);
+    ReferenceTarget* tertiary = ensure_target(PostprocessTargetKind::Tertiary, work_rect);
     if (!primary || !secondary || !tertiary) {
         return {};
     }
@@ -1169,7 +1207,7 @@ ReferenceTextureRegion BgfxReferenceRenderer::apply_filters(
     if (!submit_composite(source, primary->framebuffer, Rml::BlendMode::Replace,
                           ScissorState{false, {}}, false, 1, RmlUiPassKind::Copy,
                           RmlUiPassReason::FilterCopy, "RmlUi.ReferenceFilterCopy",
-                          full_frame_rect(m_surface))) {
+                          {0, 0, primary->width, primary->height})) {
         return {};
     }
 
@@ -1386,12 +1424,20 @@ bgfx::TextureHandle BgfxReferenceRenderer::copy_region_to_texture(
         !m_ctx.pass_builder || !m_ctx.draw_context || !ensure_fullscreen_geometry()) {
         return BGFX_INVALID_HANDLE;
     }
+    Rml::Rectanglei sample_region = region;
+    const bool origin_bottom_left = bgfx::getCaps() && bgfx::getCaps()->originBottomLeft;
+    if (flip_y && origin_bottom_left && source_height > region.Height()) {
+        const int sample_top = source_height - region.Bottom();
+        sample_region = Rml::Rectanglei::FromPositionSize(
+            {region.Left(), sample_top}, {region.Width(), region.Height()});
+    }
     const bool can_blit = !flip_y && bgfx::getCaps() &&
                           (bgfx::getCaps()->supported & BGFX_CAPS_TEXTURE_BLIT) != 0;
-    trace("copy_region name=%s source_tex=%u source_size=%dx%d region=(%d,%d %dx%d) flip_y=%d method=%s",
+    trace("copy_region name=%s source_tex=%u source_size=%dx%d region=(%d,%d %dx%d) sample=(%d,%d %dx%d) flip_y=%d origin_bl=%d method=%s",
           name ? name : "<null>", bgfx::isValid(source) ? source.idx : 65535u, source_width,
           source_height, region.Left(), region.Top(), region.Width(), region.Height(),
-          flip_y ? 1 : 0, can_blit ? "blit" : "copy-pass");
+          sample_region.Left(), sample_region.Top(), sample_region.Width(), sample_region.Height(),
+          flip_y ? 1 : 0, origin_bottom_left ? 1 : 0, can_blit ? "blit" : "copy-pass");
     const uint64_t flags = (can_blit ? BGFX_TEXTURE_BLIT_DST : BGFX_TEXTURE_RT) |
                            BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP;
     bgfx::TextureHandle texture = bgfx::createTexture2D(
@@ -1407,7 +1453,7 @@ bgfx::TextureHandle BgfxReferenceRenderer::copy_region_to_texture(
             bgfx::destroy(texture);
             return BGFX_INVALID_HANDLE;
         }
-        m_ctx.draw_context->submit_blit(*pass, texture, source, region);
+        m_ctx.draw_context->submit_blit(*pass, texture, source, sample_region);
         if (m_ctx.perf) {
             m_ctx.perf->add_copy();
             m_ctx.perf->add_copy_pixels(uint64_t(region.Width()) * uint64_t(region.Height()));
@@ -1426,8 +1472,8 @@ bgfx::TextureHandle BgfxReferenceRenderer::copy_region_to_texture(
         bgfx::destroy(texture);
         return BGFX_INVALID_HANDLE;
     }
-    const bool copied = m_ctx.draw_context->submit_copy(*pass, draw_resources(), source, region,
-                                                        source_width, source_height, flip_y);
+    const bool copied = m_ctx.draw_context->submit_copy(
+        *pass, draw_resources(), source, sample_region, source_width, source_height, flip_y);
     bgfx::destroy(framebuffer);
     if (!copied) {
         bgfx::destroy(texture);
