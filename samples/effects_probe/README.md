@@ -18,13 +18,15 @@ cd /path/to/RmlUi
 
 Use the same case number with both binaries to compare the bgfx backend against RmlUi's official GL3 renderer.
 
-The bgfx backend defaults to its GL3-compatible filtered-layer composite path. To force the older bounded optimized filtered-layer path for comparison, set:
+The bgfx backend defaults to the unbounded reference render path. This path materializes filtered layers at the full framebuffer size so it can be used to isolate bugs caused by bounded rendering. To force the bounded optimized render path for comparison, set:
 
 ```bash
-RMLUI_BGFX_FILTER_LAYER_COMPOSITE=optimized /path/to/rmlui-bgfx/build/linux-samples/samples/rmlui_bgfx_sample_effects_probe 13
+RMLUI_BGFX_RENDER_PATH=optimized /path/to/rmlui-bgfx/build/linux-samples/samples/rmlui_bgfx_sample_effects_probe 13
 ```
 
-Set `RMLUI_BGFX_FILTER_TRACE=1` to print filter rectangles, texture handles, blur bounds, and output bounds. Set `RMLUI_BGFX_BLUR_SAMPLE_BOUNDS=full` to force blur sampling against the full postprocess texture instead of the calculated source bounds.
+Use `RMLUI_BGFX_RENDER_PATH=reference` to explicitly select the default correctness path. The aliases `gl3-compatible`, `gl3`, `compatible`, and `compat` are also accepted.
+
+Reference diagnostics are enabled by default and print event-level information to stdout: full-frame layer/target allocation, push/pop, clip-mask operations, `SaveLayerAsTexture`, `SaveLayerAsMaskImage`, filter chains, postprocess passes, and composite source/destination rectangles. Set `RMLUI_BGFX_FILTER_TRACE=0` to disable these diagnostics. Set `RMLUI_BGFX_BLUR_SAMPLE_BOUNDS=full` to force blur sampling against the full postprocess texture instead of the calculated source bounds.
 
 Cases:
 
@@ -63,5 +65,5 @@ Workflow:
 12. Run `17` if `16` passes. This verifies the inverse inset clip without the final rounded clip.
 13. Run `02` and `03`. Fix saved layer texture bounds and box-shadow generation.
 14. Run `04`. Fix ordinary filter compositing.
-5. Run `05` and `06`. Fix backdrop and mask-image paths.
-6. Only then return to the full upstream effects sample.
+15. Run `05` and `06`. Fix backdrop and mask-image paths.
+16. Only then return to the full upstream effects sample.

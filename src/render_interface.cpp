@@ -6,6 +6,7 @@
 #include "rmlui_bgfx_layers.hpp"
 #include "rmlui_bgfx_passes.hpp"
 #include "rmlui_bgfx_planning.hpp"
+#include "rmlui_bgfx_reference_renderer.hpp"
 #include "rmlui_bgfx_target_cache.hpp"
 #include "rmlui_bgfx_types.hpp"
 
@@ -221,7 +222,7 @@ struct RenderInterface::Impl {
         : shader_provider(config.shaders), textures_provider(config.textures),
           diagnostics(config.diagnostics), material_shader_provider(config.material_shaders),
           perf_logger(config.perf_logger),
-          filter_layer_composite_path(config.filter_layer_composite_path),
+          render_path(config.render_path),
           blur_sample_bounds_mode(config.blur_sample_bounds_mode),
           trace_filter_pipeline(config.trace_filter_pipeline),
           pass_builder(config.views.begin, config.views.end, &perf),
@@ -271,6 +272,7 @@ struct RenderInterface::Impl {
         const uint8_t white[] = {255, 255, 255, 255};
         white_texture = bgfx::createTexture2D(1, 1, false, 1, bgfx::TextureFormat::RGBA8,
                                               kRmlTextureFlags, bgfx::copy(white, sizeof(white)));
+        reference_renderer.set_context(reference_context());
         resize(config.surface);
     }
 
@@ -404,6 +406,7 @@ struct RenderInterface::Impl {
                      10000.0f, 0.0f, bgfx::getCaps()->homogeneousDepth);
         destroy_layers();
         destroy_postprocess_targets();
+        reference_renderer.resize();
     }
 
     static void destroy_geometry(GeometryRecord& geometry)
@@ -1193,6 +1196,53 @@ struct RenderInterface::Impl {
                                  kRmlBlendState};
     }
 
+    ReferenceRendererContext reference_context()
+    {
+        ReferenceRendererContext context;
+        context.geometries = &geometries;
+        context.textures = &textures;
+        context.filters = &filters;
+        context.shaders = &shaders;
+        context.texture_counter = &texture_counter;
+        context.filter_counter = &filter_counter;
+        context.pass_builder = &pass_builder;
+        context.draw_context = &draw_context;
+        context.perf = &perf;
+        context.material_shaders = material_shader_provider;
+        context.fullscreen_layout = &fullscreen_layout;
+        context.white_texture = white_texture;
+        context.programs = ReferenceRendererPrograms{program,
+                                                     composite_program,
+                                                     composite_filter_program,
+                                                     copy_program,
+                                                     opacity_program,
+                                                     color_matrix_program,
+                                                     mask_multiply_program,
+                                                     blur_program,
+                                                     drop_shadow_program,
+                                                     gradient_program};
+        context.uniforms = ReferenceRendererUniforms{sampler,
+                                                     mask_sampler,
+                                                     projection_uniform,
+                                                     transform_uniform,
+                                                     translate_uniform,
+                                                     color_matrix_uniform,
+                                                     opacity_uniform,
+                                                     gradient_params_uniform,
+                                                     gradient_stops_uniform,
+                                                     gradient_stop_meta_uniform,
+                                                     blur_params_uniform,
+                                                     blur_weights_uniform,
+                                                     texcoord_bounds_uniform,
+                                                     mask_texcoord_transform_uniform,
+                                                     shadow_color_uniform,
+                                                     shadow_offset_uniform};
+        context.identity = identity;
+        context.premultiplied_blend_state = kRmlBlendState;
+        context.trace = trace_filter_pipeline;
+        return context;
+    }
+
     BgfxFilterPipelineContext filter_context()
     {
         // BgfxFilterPipelineContext carries a draw-resource snapshot. Ensure the fullscreen
@@ -1207,6 +1257,7 @@ struct RenderInterface::Impl {
                                          draw_context,
                                          draw_resources(),
                                          perf,
+                                         render_path,
                                          blur_sample_bounds_mode,
                                          trace_filter_pipeline,
                                          [this]() { return ensure_fullscreen_geometry(); },
@@ -1220,7 +1271,7 @@ struct RenderInterface::Impl {
             &root_requires_preservation,
             surface,
             scissor_state,
-            filter_layer_composite_path,
+            render_path,
             &filter_pipeline,
             filter_context(),
             [this](const char* message) { fail_frame(message); },
@@ -1773,7 +1824,7 @@ struct RenderInterface::Impl {
     const char* direct_base_fallback_reason = nullptr;
     const char* logged_base_fallback_reason = nullptr;
     bool base_direct_compatibility_enabled = false;
-    FilterLayerCompositePath filter_layer_composite_path = FilterLayerCompositePath::Gl3Compatible;
+    RenderPath render_path = RenderPath::Reference;
     BlurSampleBoundsMode blur_sample_bounds_mode = BlurSampleBoundsMode::SourceBounds;
     bool trace_filter_pipeline = false;
 
@@ -1784,6 +1835,7 @@ struct RenderInterface::Impl {
     rmlui_bgfx::PerfCounters perf;
     BgfxDrawContext draw_context;
     BgfxFilterPipeline filter_pipeline;
+    BgfxReferenceRenderer reference_renderer;
     BgfxPassBuilder pass_builder;
     BgfxTargetCache target_cache{&perf};
     BgfxLayerSystem layer_system{target_cache};
@@ -1839,6 +1891,18 @@ void RenderInterface::begin_frame()
     m_impl->scissor_enabled = false;
     m_impl->scissor_region =
         Rml::Rectanglei::FromPositionSize({0, 0}, {m_impl->width, m_impl->height});
+
+    if (m_impl->render_path == RenderPath::Reference) {
+        m_impl->release_deferred_geometries();
+        m_impl->perf.reset();
+        m_impl->frame_failed = false;
+        m_impl->direct_base_presented = false;
+        m_impl->direct_base_fallback_reason = nullptr;
+        m_impl->reference_renderer.set_context(m_impl->reference_context());
+        m_impl->reference_renderer.begin_frame(m_impl->surface, m_impl->depth_stencil_format());
+        return;
+    }
+
     if (!m_impl->begin_base_layer())
         return;
     LayerRecord* base = m_impl->current_layer();
@@ -1853,31 +1917,35 @@ void RenderInterface::begin_frame()
 
 void RenderInterface::end_frame()
 {
-    if (m_impl->frame_failed) {
-        m_impl->layer_system.begin_frame();
-        return;
-    }
-    if (m_impl->layer_stack.size() != 1) {
-        std::fprintf(stderr, "[rmlui] unbalanced layer stack at frame end: %zu\n",
-                     m_impl->layer_stack.size());
-        m_impl->layer_system.begin_frame();
-    }
-    if (!m_impl->direct_base_requested) {
-        if (LayerRecord* base = m_impl->layer_for_handle(0)) {
-            if (!m_impl->composite(make_composite_op(
-                    texture_region(base->color, base->bounds.framebuffer, full_local_rect(*base),
-                                   base->texture_width, base->texture_height),
-                    BGFX_INVALID_HANDLE, Rml::BlendMode::Blend, ScissorState{false, {}}, false, 1,
-                    RmlUiPassKind::FinalComposite, RmlUiPassReason::FinalComposite,
-                    "RmlUi.FinalComposite", LocalFbRect{0, 0, m_impl->width, m_impl->height}))) {
-                m_impl->fail_frame("end_frame final composite failed");
-            }
-        }
+    if (m_impl->render_path == RenderPath::Reference) {
+        m_impl->reference_renderer.end_frame();
     } else {
-        m_impl->direct_base_presented = true;
-        if (m_impl->direct_base_fallback_reason) {
-            std::fprintf(stderr, "[rmlui] direct base presentation: %s\n",
-                         m_impl->direct_base_fallback_reason);
+        if (m_impl->frame_failed) {
+            m_impl->layer_system.begin_frame();
+            return;
+        }
+        if (m_impl->layer_stack.size() != 1) {
+            std::fprintf(stderr, "[rmlui] unbalanced layer stack at frame end: %zu\n",
+                         m_impl->layer_stack.size());
+            m_impl->layer_system.begin_frame();
+        }
+        if (!m_impl->direct_base_requested) {
+            if (LayerRecord* base = m_impl->layer_for_handle(0)) {
+                if (!m_impl->composite(make_composite_op(
+                        texture_region(base->color, base->bounds.framebuffer, full_local_rect(*base),
+                                       base->texture_width, base->texture_height),
+                        BGFX_INVALID_HANDLE, Rml::BlendMode::Blend, ScissorState{false, {}}, false,
+                        1, RmlUiPassKind::FinalComposite, RmlUiPassReason::FinalComposite,
+                        "RmlUi.FinalComposite", LocalFbRect{0, 0, m_impl->width, m_impl->height}))) {
+                    m_impl->fail_frame("end_frame final composite failed");
+                }
+            }
+        } else {
+            m_impl->direct_base_presented = true;
+            if (m_impl->direct_base_fallback_reason) {
+                std::fprintf(stderr, "[rmlui] direct base presentation: %s\n",
+                             m_impl->direct_base_fallback_reason);
+            }
         }
     }
 
@@ -2004,6 +2072,10 @@ void RenderInterface::RenderGeometry(Rml::CompiledGeometryHandle geometry,
     auto it = m_impl->geometries.find(geometry);
     if (it == m_impl->geometries.end())
         return;
+    if (m_impl->render_path == RenderPath::Reference) {
+        m_impl->reference_renderer.render_geometry(geometry, translation, texture);
+        return;
+    }
     if (m_impl->active_layer_is_recording()) {
         m_impl->record_geometry_command(geometry, translation, texture);
         return;
@@ -2014,7 +2086,8 @@ void RenderInterface::RenderGeometry(Rml::CompiledGeometryHandle geometry,
 void RenderInterface::ReleaseGeometry(Rml::CompiledGeometryHandle geometry)
 {
     if (auto it = m_impl->geometries.find(geometry); it != m_impl->geometries.end()) {
-        if (m_impl->recorded_geometry_reference_exists(geometry)) {
+        if (m_impl->recorded_geometry_reference_exists(geometry) ||
+            m_impl->reference_renderer.geometry_in_use(geometry)) {
             m_impl->deferred_geometry_release.insert(geometry);
             return;
         }
@@ -2080,11 +2153,21 @@ void RenderInterface::ReleaseTexture(Rml::TextureHandle texture)
     }
 }
 
-void RenderInterface::EnableScissorRegion(bool enable) { m_impl->scissor_enabled = enable; }
+void RenderInterface::EnableScissorRegion(bool enable)
+{
+    m_impl->scissor_enabled = enable;
+    if (m_impl->render_path == RenderPath::Reference) {
+        m_impl->reference_renderer.enable_scissor_region(enable);
+    }
+}
+
 void RenderInterface::SetScissorRegion(Rml::Rectanglei region)
 {
     m_impl->scissor_region = clamp_scissor(logical_scissor_to_framebuffer(region, m_impl->surface),
                                            m_impl->width, m_impl->height);
+    if (m_impl->render_path == RenderPath::Reference) {
+        m_impl->reference_renderer.set_scissor_region(m_impl->scissor_region);
+    }
 }
 
 void RenderInterface::SetTransform(const Rml::Matrix4f* transform)
@@ -2095,10 +2178,17 @@ void RenderInterface::SetTransform(const Rml::Matrix4f* transform)
     } else {
         m_impl->transform_valid = false;
     }
+    if (m_impl->render_path == RenderPath::Reference) {
+        m_impl->reference_renderer.set_transform(m_impl->transform_valid ? m_impl->transform : nullptr);
+    }
 }
 
 void RenderInterface::EnableClipMask(bool enable)
 {
+    if (m_impl->render_path == RenderPath::Reference) {
+        m_impl->reference_renderer.enable_clip_mask(enable);
+        return;
+    }
     if (LayerRecord* layer = m_impl->current_layer()) {
         layer->clip_mask_enabled = enable;
     }
@@ -2108,6 +2198,10 @@ void RenderInterface::RenderToClipMask(Rml::ClipMaskOperation operation,
                                        Rml::CompiledGeometryHandle geometry,
                                        Rml::Vector2f translation)
 {
+    if (m_impl->render_path == RenderPath::Reference) {
+        m_impl->reference_renderer.render_to_clip_mask(operation, geometry, translation);
+        return;
+    }
     if (m_impl->geometries.find(geometry) == m_impl->geometries.end())
         return;
     LayerRecord* layer = m_impl->current_layer();
@@ -2136,6 +2230,9 @@ void RenderInterface::RenderToClipMask(Rml::ClipMaskOperation operation,
 
 Rml::LayerHandle RenderInterface::PushLayer()
 {
+    if (m_impl->render_path == RenderPath::Reference) {
+        return m_impl->reference_renderer.push_layer();
+    }
     m_impl->perf.add_layer_push();
     const Rml::LayerHandle parent = m_impl->active_layer;
     const Rml::LayerHandle handle = Rml::LayerHandle(m_impl->layer_pool.push());
@@ -2158,6 +2255,10 @@ void RenderInterface::CompositeLayers(Rml::LayerHandle source, Rml::LayerHandle 
                                       Rml::BlendMode blend_mode,
                                       Rml::Span<const Rml::CompiledFilterHandle> filters)
 {
+    if (m_impl->render_path == RenderPath::Reference) {
+        m_impl->reference_renderer.composite_layers(source, destination, blend_mode, filters);
+        return;
+    }
     const ScissorState scissor_state{m_impl->scissor_enabled, m_impl->scissor_region};
     m_impl->layer_system.composite_layers(m_impl->composite_context(scissor_state), source,
                                           destination, blend_mode, filters);
@@ -2165,6 +2266,10 @@ void RenderInterface::CompositeLayers(Rml::LayerHandle source, Rml::LayerHandle 
 
 void RenderInterface::PopLayer()
 {
+    if (m_impl->render_path == RenderPath::Reference) {
+        m_impl->reference_renderer.pop_layer();
+        return;
+    }
     if (m_impl->layer_stack.size() <= 1) {
         std::fprintf(stderr, "[rmlui] attempted to pop the base RmlUi layer\n");
         return;
@@ -2174,6 +2279,9 @@ void RenderInterface::PopLayer()
 
 Rml::TextureHandle RenderInterface::SaveLayerAsTexture()
 {
+    if (m_impl->render_path == RenderPath::Reference) {
+        return m_impl->reference_renderer.save_layer_as_texture();
+    }
     if (m_impl->frame_failed)
         return 0;
     return m_impl->layer_system.save_layer_as_texture(m_impl->save_texture_context());
@@ -2181,6 +2289,9 @@ Rml::TextureHandle RenderInterface::SaveLayerAsTexture()
 
 Rml::CompiledFilterHandle RenderInterface::SaveLayerAsMaskImage()
 {
+    if (m_impl->render_path == RenderPath::Reference) {
+        return m_impl->reference_renderer.save_layer_as_mask_image();
+    }
     if (m_impl->frame_failed)
         return 0;
     return m_impl->layer_system.save_layer_as_mask_image(m_impl->save_mask_context());
@@ -2305,6 +2416,10 @@ void RenderInterface::RenderShader(Rml::CompiledShaderHandle shader,
     auto geometry_it = m_impl->geometries.find(geometry);
     if (shader_it == m_impl->shaders.end() || geometry_it == m_impl->geometries.end())
         return;
+    if (m_impl->render_path == RenderPath::Reference) {
+        m_impl->reference_renderer.render_shader(shader, geometry, translation, texture);
+        return;
+    }
     if (m_impl->active_layer_is_recording()) {
         m_impl->record_shader_command(shader, geometry, translation, texture);
         return;

@@ -44,9 +44,9 @@ struct ViewRange {
     bgfx::ViewId end = 0;
 };
 
-enum class FilterLayerCompositePath {
+enum class RenderPath {
+    Reference,
     Optimized,
-    Gl3Compatible,
 };
 
 enum class BlurSampleBoundsMode {
@@ -189,10 +189,10 @@ struct RendererConfig {
     Diagnostics* diagnostics = nullptr;
     PerfLogger* perf_logger = nullptr;
     MaterialShaderProvider* material_shaders = nullptr;
-    bool enable_perf_logging = false;
-    FilterLayerCompositePath filter_layer_composite_path = FilterLayerCompositePath::Gl3Compatible;
+    bool enable_perf_logging = true;
+    RenderPath render_path = RenderPath::Reference;
     BlurSampleBoundsMode blur_sample_bounds_mode = BlurSampleBoundsMode::SourceBounds;
-    bool trace_filter_pipeline = false;
+    bool trace_filter_pipeline = true;
 };
 
 } // namespace rmlui_bgfx

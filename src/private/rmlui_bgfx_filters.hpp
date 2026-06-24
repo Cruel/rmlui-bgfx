@@ -22,6 +22,7 @@ struct BgfxFilterPipelineContext {
     BgfxDrawContext& draw_context;
     BgfxDrawResources resources;
     PerfCounters& perf;
+    RenderPath render_path = RenderPath::Reference;
     BlurSampleBoundsMode blur_sample_bounds_mode = BlurSampleBoundsMode::SourceBounds;
     bool trace_filter_pipeline = false;
     std::function<bool()> ensure_fullscreen_geometry;
@@ -42,6 +43,19 @@ public:
     apply(const BgfxFilterPipelineContext& ctx, TextureRegion source,
           const RenderBounds& source_bounds,
           Rml::Span<const Rml::CompiledFilterHandle> filter_handles) const;
+
+    [[nodiscard]] FilterApplyResult
+    apply_reference(const BgfxFilterPipelineContext& ctx, TextureRegion source,
+                    const RenderBounds& source_bounds,
+                    Rml::Span<const Rml::CompiledFilterHandle> filter_handles) const
+    {
+        return apply_common(ctx, source, source_bounds, filter_handles);
+    }
+
+    [[nodiscard]] FilterApplyResult
+    apply_common(const BgfxFilterPipelineContext& ctx, TextureRegion source,
+                 const RenderBounds& source_bounds,
+                 Rml::Span<const Rml::CompiledFilterHandle> filter_handles) const;
 
 private:
     [[nodiscard]] bool texture_attached_to_framebuffer(const BgfxFilterPipelineContext& ctx,

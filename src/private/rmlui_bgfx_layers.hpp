@@ -27,7 +27,7 @@ struct BgfxLayerCompositeContext {
     bool* root_requires_preservation = nullptr;
     SurfaceMetrics surface{};
     ScissorState scissor_state;
-    FilterLayerCompositePath filter_layer_composite_path = FilterLayerCompositePath::Gl3Compatible;
+    RenderPath render_path = RenderPath::Reference;
     BgfxFilterPipeline* filter_pipeline = nullptr;
     BgfxFilterPipelineContext filter_context;
     std::function<void(const char*)> fail_frame;

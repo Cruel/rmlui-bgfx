@@ -1,4 +1,5 @@
 #include "rmlui_bgfx_filters.hpp"
+#include "rmlui_bgfx_filter_paths.hpp"
 
 #include <algorithm>
 #include <array>
@@ -311,6 +312,23 @@ FilterApplyResult
 BgfxFilterPipeline::apply(const BgfxFilterPipelineContext& ctx, TextureRegion source,
                           const RenderBounds& source_bounds,
                           Rml::Span<const Rml::CompiledFilterHandle> filter_handles) const
+{
+    switch (ctx.render_path) {
+    case RenderPath::Reference:
+        if (ctx.fail_frame) {
+            ctx.fail_frame("reference render path must use BgfxReferenceRenderer filter pipeline");
+        }
+        return {};
+    case RenderPath::Optimized:
+        return apply_filters_optimized(*this, ctx, source, source_bounds, filter_handles);
+    }
+    return {};
+}
+
+FilterApplyResult
+BgfxFilterPipeline::apply_common(const BgfxFilterPipelineContext& ctx, TextureRegion source,
+                                 const RenderBounds& source_bounds,
+                                 Rml::Span<const Rml::CompiledFilterHandle> filter_handles) const
 {
     FilterApplyResult result;
     const GlobalFbRect source_valid_global_bounds =

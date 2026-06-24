@@ -49,10 +49,13 @@ add_library(rmlui_bgfx STATIC
     src/bounds.cpp
     src/draw.cpp
     src/filters.cpp
+    src/filters_optimized.cpp
     src/layers.cpp
+    src/layers_optimized.cpp
     src/pass_scheduler.cpp
     src/passes.cpp
     src/planning.cpp
+    src/reference_renderer.cpp
     src/render_interface.cpp
     src/target_cache.cpp
 )

@@ -63,20 +63,24 @@ namespace {
     return "unknown";
 }
 
-[[nodiscard]] rmlui_bgfx::FilterLayerCompositePath filter_layer_composite_path_from_env()
+[[nodiscard]] rmlui_bgfx::RenderPath render_path_from_env()
 {
-    const char* value = std::getenv("RMLUI_BGFX_FILTER_LAYER_COMPOSITE");
+    const char* value = std::getenv("RMLUI_BGFX_RENDER_PATH");
     if (!value) {
-        return rmlui_bgfx::FilterLayerCompositePath::Gl3Compatible;
+        return rmlui_bgfx::RenderPath::Reference;
     }
     const std::string_view mode(value);
     if (mode == "optimized" || mode == "bounded" || mode == "fast") {
-        return rmlui_bgfx::FilterLayerCompositePath::Optimized;
+        return rmlui_bgfx::RenderPath::Optimized;
     }
-    if (mode == "gl3" || mode == "gl3-compatible" || mode == "compat") {
-        return rmlui_bgfx::FilterLayerCompositePath::Gl3Compatible;
+    if (mode == "reference" || mode == "ref" || mode == "gl3" ||
+        mode == "gl3-compatible" || mode == "compatible" || mode == "compat") {
+        return rmlui_bgfx::RenderPath::Reference;
     }
-    return rmlui_bgfx::FilterLayerCompositePath::Gl3Compatible;
+    std::fprintf(stderr,
+                 "[rmlui-bgfx] unknown RMLUI_BGFX_RENDER_PATH='%s'; using reference\n",
+                 value);
+    return rmlui_bgfx::RenderPath::Reference;
 }
 
 [[nodiscard]] rmlui_bgfx::BlurSampleBoundsMode blur_sample_bounds_mode_from_env()
@@ -95,7 +99,7 @@ namespace {
 [[nodiscard]] bool trace_filter_pipeline_from_env()
 {
     const char* value = std::getenv("RMLUI_BGFX_FILTER_TRACE");
-    return value && value[0] != '\0' && value[0] != '0';
+    return !value || value[0] == '\0' || value[0] != '0';
 }
 
 [[nodiscard]] std::vector<std::uint8_t> read_file(const std::string& path)
@@ -391,7 +395,7 @@ bool Backend::Initialize(const char* window_name, int width, int height, bool al
     config.shaders = &data->shaders;
     config.textures = &data->textures;
     config.diagnostics = &data->diagnostics;
-    config.filter_layer_composite_path = filter_layer_composite_path_from_env();
+    config.render_path = render_path_from_env();
     config.blur_sample_bounds_mode = blur_sample_bounds_mode_from_env();
     config.trace_filter_pipeline = trace_filter_pipeline_from_env();
 
