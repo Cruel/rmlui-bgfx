@@ -1,6 +1,8 @@
 #include "rmlui_bgfx_filters.hpp"
 
 #include <algorithm>
+#include <array>
+#include <cmath>
 
 namespace rmlui_bgfx {
 
@@ -77,6 +79,60 @@ namespace {
     return BGFX_STENCIL_TEST_EQUAL | BGFX_STENCIL_FUNC_REF(uint32_t(ref)) |
            BGFX_STENCIL_FUNC_RMASK(0xff) | BGFX_STENCIL_OP_FAIL_S_KEEP |
            BGFX_STENCIL_OP_FAIL_Z_KEEP | BGFX_STENCIL_OP_PASS_Z_KEEP;
+}
+
+[[nodiscard]] std::array<float, 4> filter_uv_bounds(LocalFbRect rect, int texture_width,
+                                                    int texture_height)
+{
+    auto bounds = uv_rect_for_source_region(rect, texture_width, texture_height);
+    if (bgfx::getCaps() && bgfx::getCaps()->originBottomLeft) {
+        const float top = bounds[1];
+        const float bottom = bounds[3];
+        bounds[1] = 1.0f - bottom;
+        bounds[3] = 1.0f - top;
+    }
+    return bounds;
+}
+
+struct BlurShaderParameters {
+    float texel_scale = 1.0f;
+    float weights[4] = {1.0f, 0.0f, 0.0f, 0.0f};
+};
+
+[[nodiscard]] BlurShaderParameters blur_shader_parameters(float desired_sigma)
+{
+    BlurShaderParameters params;
+    if (desired_sigma < 0.5f) {
+        return params;
+    }
+
+    // Match the strategy used by RmlUi's GL3 backend: large sigmas are effectively
+    // downsampled before a fixed 7-tap separable blur is applied. We keep the bgfx
+    // pass structure simpler by sampling the fixed 7 taps at the equivalent texel
+    // stride instead of allocating downsampled intermediate targets.
+    constexpr int max_num_passes = 10;
+    constexpr float max_single_pass_sigma = 3.0f;
+    int pass_level = 0;
+    const int downsample_selector = int(desired_sigma * (2.0f / max_single_pass_sigma));
+    if (downsample_selector > 0) {
+        pass_level = std::clamp(int(std::log2(float(downsample_selector))), 0, max_num_passes);
+    }
+    const int scale = 1 << pass_level;
+    const float shader_sigma =
+        std::clamp(desired_sigma / float(scale), 0.0f, max_single_pass_sigma);
+
+    params.texel_scale = float(scale);
+    const GaussianKernel kernel = gaussian_kernel(shader_sigma);
+    const float w0 = kernel.weights.empty() ? 1.0f : kernel.weights[0];
+    const float w1 = kernel.weights.size() > 1 ? kernel.weights[1] : 0.0f;
+    const float w2 = kernel.weights.size() > 2 ? kernel.weights[2] : 0.0f;
+    const float w3 = kernel.weights.size() > 3 ? kernel.weights[3] : 0.0f;
+    const float renorm = std::max(w0 + 2.0f * (w1 + w2 + w3), 0.000001f);
+    params.weights[0] = w0 / renorm;
+    params.weights[1] = w1 / renorm;
+    params.weights[2] = w2 / renorm;
+    params.weights[3] = w3 / renorm;
+    return params;
 }
 
 } // namespace
@@ -381,22 +437,17 @@ BgfxFilterPipeline::apply(const BgfxFilterPipelineContext& ctx, TextureRegion so
             break;
         }
         case FilterKind::Blur: {
-            const GaussianKernel kernel = gaussian_kernel(filter.sigma);
-            const float w0 = kernel.weights.empty() ? 1.0f : kernel.weights[0];
-            const float w1 = kernel.weights.size() > 1 ? kernel.weights[1] : 0.0f;
-            const float w2 = kernel.weights.size() > 2 ? kernel.weights[2] : 0.0f;
-            const float w3 = kernel.weights.size() > 3 ? kernel.weights[3] : 0.0f;
-            const float renorm = std::max(w0 + 2.0f * (w1 + w2 + w3), 0.000001f);
-            const float weights[4] = {w0 / renorm, w1 / renorm, w2 / renorm, w3 / renorm};
-            const auto bounds = uv_rect_for_source_region(
-                current_valid_rect, primary->texture_width, primary->texture_height);
-            float params[4] = {0.0f, 1.0f / float(std::max(destination->texture_height, 1)), 0.0f,
-                               0.0f};
+            const BlurShaderParameters blur = blur_shader_parameters(filter.sigma);
+            const auto bounds = filter_uv_bounds(current_valid_rect, primary->texture_width,
+                                                  primary->texture_height);
+            float params[4] = {0.0f,
+                               blur.texel_scale / float(std::max(destination->texture_height, 1)),
+                               0.0f, 0.0f};
             if (!fullscreen_filter_pass(
                     ctx, current, *destination, "RmlUi.FilterBlurV",
                     [&](const RmlUiPass& pass) {
                         return ctx.draw_context.submit_blur(pass, ctx.resources, current, params,
-                                                            weights, bounds.data());
+                                                            blur.weights, bounds.data());
                     },
                     RmlUiPassReason::FilterBlur)) {
                 return {};
@@ -404,13 +455,13 @@ BgfxFilterPipeline::apply(const BgfxFilterPipelineContext& ctx, TextureRegion so
             ctx.perf.add_blur();
             current = destination->color;
             destination = (destination == primary) ? secondary : primary;
-            params[0] = 1.0f / float(std::max(destination->texture_width, 1));
+            params[0] = blur.texel_scale / float(std::max(destination->texture_width, 1));
             params[1] = 0.0f;
             if (!fullscreen_filter_pass(
                     ctx, current, *destination, "RmlUi.FilterBlurH",
                     [&](const RmlUiPass& pass) {
                         return ctx.draw_context.submit_blur(pass, ctx.resources, current, params,
-                                                            weights, bounds.data());
+                                                            blur.weights, bounds.data());
                     },
                     RmlUiPassReason::FilterBlur)) {
                 return {};
@@ -440,22 +491,17 @@ BgfxFilterPipeline::apply(const BgfxFilterPipelineContext& ctx, TextureRegion so
             current = destination->color;
             destination = (destination == primary) ? secondary : primary;
             if (filter.sigma >= 0.5f) {
-                const GaussianKernel kernel = gaussian_kernel(filter.sigma);
-                const float w0 = kernel.weights.empty() ? 1.0f : kernel.weights[0];
-                const float w1 = kernel.weights.size() > 1 ? kernel.weights[1] : 0.0f;
-                const float w2 = kernel.weights.size() > 2 ? kernel.weights[2] : 0.0f;
-                const float w3 = kernel.weights.size() > 3 ? kernel.weights[3] : 0.0f;
-                const float renorm = std::max(w0 + 2.0f * (w1 + w2 + w3), 0.000001f);
-                const float weights[4] = {w0 / renorm, w1 / renorm, w2 / renorm, w3 / renorm};
-                const auto bounds = uv_rect_for_source_region(
-                    current_valid_rect, primary->texture_width, primary->texture_height);
-                float params[4] = {0.0f, 1.0f / float(std::max(destination->texture_height, 1)),
+                const BlurShaderParameters blur = blur_shader_parameters(filter.sigma);
+                const auto bounds = filter_uv_bounds(current_valid_rect, primary->texture_width,
+                                                      primary->texture_height);
+                float params[4] = {0.0f,
+                                   blur.texel_scale / float(std::max(destination->texture_height, 1)),
                                    0.0f, 0.0f};
                 if (!fullscreen_filter_pass(
                         ctx, current, *destination, "RmlUi.FilterDropShadowBlurV",
                         [&](const RmlUiPass& pass) {
                             return ctx.draw_context.submit_blur(pass, ctx.resources, current,
-                                                                params, weights, bounds.data());
+                                                                params, blur.weights, bounds.data());
                         },
                         RmlUiPassReason::FilterBlur)) {
                     return {};
@@ -463,13 +509,13 @@ BgfxFilterPipeline::apply(const BgfxFilterPipelineContext& ctx, TextureRegion so
                 ctx.perf.add_blur();
                 current = destination->color;
                 destination = (destination == primary) ? secondary : primary;
-                params[0] = 1.0f / float(std::max(destination->texture_width, 1));
+                params[0] = blur.texel_scale / float(std::max(destination->texture_width, 1));
                 params[1] = 0.0f;
                 if (!fullscreen_filter_pass(
                         ctx, current, *destination, "RmlUi.FilterDropShadowBlurH",
                         [&](const RmlUiPass& pass) {
                             return ctx.draw_context.submit_blur(pass, ctx.resources, current,
-                                                                params, weights, bounds.data());
+                                                                params, blur.weights, bounds.data());
                         },
                         RmlUiPassReason::FilterBlur)) {
                     return {};

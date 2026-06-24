@@ -27,6 +27,7 @@
 #include <limits>
 #include <optional>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -491,36 +492,75 @@ struct RenderInterface::Impl {
     Rml::Rectanglei current_save_bounds()
     {
         LayerRecord* layer = current_layer();
-        if (!layer || !bgfx::isValid(layer->color)) {
+        if (!layer) {
             return Rml::Rectanglei::FromPositionSize({0, 0}, {0, 0});
         }
 
-        const Rml::Rectanglei layer_bounds = Rml::Rectanglei::FromPositionSize(
-            {layer->bounds.framebuffer.x, layer->bounds.framebuffer.y},
-            {layer->bounds.framebuffer.w, layer->bounds.framebuffer.h});
-        if (!scissor_enabled) {
-            return layer_bounds;
+        // RmlUi's SaveLayerAsTexture contract is based on the current scissor region. This
+        // is especially important for callback textures such as box-shadow generation, where
+        // RmlUi sets the scissor to the desired texture dimensions before pushing a temporary
+        // layer. Do not derive the save region from recorded content bounds, or the generated
+        // texture can be cropped to the element/background bounds while RmlUi still renders it
+        // using the full callback texture geometry.
+        FbRect bounds{};
+        if (scissor_enabled) {
+            const Rml::Rectanglei clipped = clamp_scissor(scissor_region, width, height);
+            if (clipped.Width() <= 0 || clipped.Height() <= 0) {
+                return Rml::Rectanglei::FromPositionSize({0, 0}, {0, 0});
+            }
+            bounds = {clipped.Left(), clipped.Top(), clipped.Width(), clipped.Height()};
+        } else if (!is_empty(layer->bounds.framebuffer)) {
+            bounds = layer->bounds.framebuffer;
+        } else {
+            bounds = {0, 0, width, height};
         }
 
-        const Rml::Rectanglei clipped = clamp_scissor(scissor_region, width, height);
-        if (clipped.Width() <= 0 || clipped.Height() <= 0) {
+        // Keep the requested save rectangle intact. A virtual layer may already be materialized
+        // to tight content bounds by CompositeLayers, but SaveLayerAsTexture still has to return
+        // a texture with the current scissor dimensions, matching GL3's full-layer framebuffer
+        // behavior. Clipping this to layer->bounds would make callback textures look stretched.
+        bounds = clamp_to_surface(align_outward_for_render_target(bounds), surface);
+        if (is_empty(bounds)) {
             return Rml::Rectanglei::FromPositionSize({0, 0}, {0, 0});
         }
-
-        const int left = std::max(clipped.Left(), layer_bounds.Left());
-        const int top = std::max(clipped.Top(), layer_bounds.Top());
-        const int right = std::min(clipped.Right(), layer_bounds.Right());
-        const int bottom = std::min(clipped.Bottom(), layer_bounds.Bottom());
-        if (right <= left || bottom <= top) {
-            return Rml::Rectanglei::FromPositionSize({0, 0}, {0, 0});
-        }
-        return Rml::Rectanglei::FromPositionSize({left, top}, {right - left, bottom - top});
+        return rectangle_from_fb(bounds);
     }
 
     void destroy_layers()
     {
         target_cache.destroy_layers();
         layer_system.clear_stack_to_base();
+    }
+
+    bool recorded_geometry_reference_exists(Rml::CompiledGeometryHandle geometry) const
+    {
+        for (const LayerRecord& layer : layers) {
+            for (const RecordedDrawCommand& command : layer.commands) {
+                if ((command.kind == RecordedCommandKind::Geometry ||
+                     command.kind == RecordedCommandKind::Shader ||
+                     command.kind == RecordedCommandKind::ClipMask) &&
+                    command.geometry == geometry) {
+                    return true;
+                }
+            }
+        }
+        for (const ClipCommand& command : clip_commands) {
+            if (command.geometry == geometry) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    void release_deferred_geometries()
+    {
+        for (Rml::CompiledGeometryHandle handle : deferred_geometry_release) {
+            if (auto it = geometries.find(handle); it != geometries.end()) {
+                destroy_geometry(it->second);
+                geometries.erase(it);
+            }
+        }
+        deferred_geometry_release.clear();
     }
 
     void destroy_postprocess_targets() { target_cache.destroy_postprocess_targets(); }
@@ -957,8 +997,16 @@ struct RenderInterface::Impl {
             },
             [this]() { return current_save_bounds(); },
             [this](bgfx::TextureHandle source, Rml::Rectanglei region, int source_width,
-                   int source_height, const char* name) {
-                return copy_region_to_texture(source, region, source_width, source_height, name);
+                   int source_height, const char* name, bool flip_y) {
+                return copy_region_to_texture(source, region, source_width, source_height, name,
+                                              flip_y);
+            },
+            [this](bgfx::TextureHandle source, Rml::Rectanglei region, int source_width,
+                   int source_height, Rml::Vector2i output_dimensions,
+                   Rml::Vector2i destination_offset, const char* name, bool flip_y) {
+                return copy_region_to_sized_texture(source, region, source_width, source_height,
+                                                    output_dimensions, destination_offset, name,
+                                                    flip_y);
             }};
     }
 
@@ -977,13 +1025,15 @@ struct RenderInterface::Impl {
                 return materialize_layer(handle, required_bounds);
             },
             [this](bgfx::TextureHandle source, Rml::Rectanglei region, int source_width,
-                   int source_height, const char* name) {
-                return copy_region_to_texture(source, region, source_width, source_height, name);
+                   int source_height, const char* name, bool flip_y) {
+                return copy_region_to_texture(source, region, source_width, source_height, name,
+                                              flip_y);
             }};
     }
 
     bool begin_base_layer()
     {
+        release_deferred_geometries();
         perf.reset();
         direct_base_presented = false;
         direct_base_fallback_reason = nullptr;
@@ -1208,7 +1258,7 @@ struct RenderInterface::Impl {
 
     bool copy_region_to_framebuffer(bgfx::TextureHandle source, bgfx::FrameBufferHandle destination,
                                     const Rml::Rectanglei& region, int source_width,
-                                    int source_height, const char* name)
+                                    int source_height, const char* name, bool flip_y = false)
     {
         if (!ensure_fullscreen_geometry() || !bgfx::isValid(copy_program) ||
             !bgfx::isValid(source) || !bgfx::isValid(destination))
@@ -1220,17 +1270,18 @@ struct RenderInterface::Impl {
         perf.add_copy();
         perf.add_copy_pixels(uint64_t(region.Width()) * uint64_t(region.Height()));
         return draw_context.submit_copy(*pass, draw_resources(), source, region, source_width,
-                                        source_height);
+                                        source_height, flip_y);
     }
 
     bgfx::TextureHandle copy_region_to_texture(bgfx::TextureHandle source,
                                                const Rml::Rectanglei& region, int source_width,
-                                               int source_height, const char* name)
+                                               int source_height, const char* name,
+                                               bool flip_y = false)
     {
         if (region.Width() <= 0 || region.Height() <= 0 || !bgfx::isValid(source))
             return BGFX_INVALID_HANDLE;
-        const bool can_blit =
-            bgfx::getCaps() && (bgfx::getCaps()->supported & BGFX_CAPS_TEXTURE_BLIT) != 0;
+        const bool can_blit = !flip_y && bgfx::getCaps() &&
+                              (bgfx::getCaps()->supported & BGFX_CAPS_TEXTURE_BLIT) != 0;
         const uint64_t flags = (can_blit ? BGFX_TEXTURE_BLIT_DST : BGFX_TEXTURE_RT) |
                                BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP;
         bgfx::TextureHandle texture =
@@ -1258,7 +1309,68 @@ struct RenderInterface::Impl {
             return BGFX_INVALID_HANDLE;
         }
         const bool copied = copy_region_to_framebuffer(source, framebuffer, region, source_width,
-                                                       source_height, name);
+                                                       source_height, name, flip_y);
+        bgfx::destroy(framebuffer);
+        if (!copied) {
+            bgfx::destroy(texture);
+            return BGFX_INVALID_HANDLE;
+        }
+        return texture;
+    }
+
+    bgfx::TextureHandle copy_region_to_sized_texture(bgfx::TextureHandle source,
+                                                     const Rml::Rectanglei& region,
+                                                     int source_width, int source_height,
+                                                     Rml::Vector2i output_dimensions,
+                                                     Rml::Vector2i destination_offset,
+                                                     const char* name, bool flip_y = false)
+    {
+        if (region.Width() <= 0 || region.Height() <= 0 || output_dimensions.x <= 0 ||
+            output_dimensions.y <= 0 || !bgfx::isValid(source)) {
+            return BGFX_INVALID_HANDLE;
+        }
+        if (region.Width() == output_dimensions.x && region.Height() == output_dimensions.y &&
+            destination_offset.x == 0 && destination_offset.y == 0) {
+            return copy_region_to_texture(source, region, source_width, source_height, name, flip_y);
+        }
+
+        constexpr uint64_t flags = BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP;
+        bgfx::TextureHandle texture =
+            bgfx::createTexture2D(uint16_t(output_dimensions.x), uint16_t(output_dimensions.y), false,
+                                  1, bgfx::TextureFormat::RGBA8, flags);
+        if (!bgfx::isValid(texture)) {
+            return BGFX_INVALID_HANDLE;
+        }
+        bgfx::FrameBufferHandle framebuffer = bgfx::createFrameBuffer(1, &texture, false);
+        if (!bgfx::isValid(framebuffer)) {
+            bgfx::destroy(texture);
+            return BGFX_INVALID_HANDLE;
+        }
+
+        auto clear_pass = pass_builder.layer_clear(framebuffer, output_dimensions.x, output_dimensions.y);
+        if (!clear_pass) {
+            bgfx::destroy(framebuffer);
+            bgfx::destroy(texture);
+            return BGFX_INVALID_HANDLE;
+        }
+        bgfx::touch(clear_pass->view);
+
+        const int destination_y = flip_y
+                                      ? output_dimensions.y - destination_offset.y - region.Height()
+                                      : destination_offset.y;
+        const LocalFbRect destination_rect{destination_offset.x, destination_y, region.Width(),
+                                           region.Height()};
+        auto pass = pass_builder.composite(framebuffer, destination_rect, RmlUiPassKind::Copy,
+                                           name, copy_pass_reason_from_name(name));
+        if (!pass) {
+            bgfx::destroy(framebuffer);
+            bgfx::destroy(texture);
+            return BGFX_INVALID_HANDLE;
+        }
+        perf.add_copy();
+        perf.add_copy_pixels(uint64_t(region.Width()) * uint64_t(region.Height()));
+        const bool copied = draw_context.submit_copy(*pass, draw_resources(), source, region,
+                                                     source_width, source_height, flip_y);
         bgfx::destroy(framebuffer);
         if (!copied) {
             bgfx::destroy(texture);
@@ -1620,6 +1732,7 @@ struct RenderInterface::Impl {
     bgfx::UniformHandle shadow_color_uniform = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle shadow_offset_uniform = BGFX_INVALID_HANDLE;
     std::unordered_map<Rml::CompiledGeometryHandle, GeometryRecord> geometries;
+    std::unordered_set<Rml::CompiledGeometryHandle> deferred_geometry_release;
     std::unordered_map<Rml::TextureHandle, TextureRecord> textures;
     std::unordered_map<Rml::CompiledFilterHandle, FilterRecord> filters;
     std::unordered_map<Rml::CompiledShaderHandle, ShaderRecord> shaders;
@@ -1885,6 +1998,10 @@ void RenderInterface::RenderGeometry(Rml::CompiledGeometryHandle geometry,
 void RenderInterface::ReleaseGeometry(Rml::CompiledGeometryHandle geometry)
 {
     if (auto it = m_impl->geometries.find(geometry); it != m_impl->geometries.end()) {
+        if (m_impl->recorded_geometry_reference_exists(geometry)) {
+            m_impl->deferred_geometry_release.insert(geometry);
+            return;
+        }
         Impl::destroy_geometry(it->second);
         m_impl->geometries.erase(it);
     }
@@ -2090,8 +2207,8 @@ Rml::CompiledFilterHandle RenderInterface::CompileFilter(const Rml::String& name
         std::fprintf(stderr, "[rmlui] unsupported filter '%s'\n", name.c_str());
         return 0;
     }
-    if (is_noop_filter(filter))
-        return 0;
+    // A zero handle is a compile failure to RmlUi. Keep supported no-op filters
+    // as valid handles; the render-time filter simplifier removes them later.
     const Rml::CompiledFilterHandle handle = ++m_impl->filter_counter;
     m_impl->filters.emplace(handle, filter);
     return handle;

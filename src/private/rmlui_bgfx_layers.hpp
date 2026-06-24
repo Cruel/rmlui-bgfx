@@ -44,8 +44,11 @@ struct BgfxLayerSaveTextureContext {
     std::function<void(const char*)> fail_frame;
     std::function<bool(Rml::LayerHandle, std::optional<FbRect>)> materialize_layer;
     std::function<Rml::Rectanglei()> current_save_bounds;
-    std::function<bgfx::TextureHandle(bgfx::TextureHandle, Rml::Rectanglei, int, int, const char*)>
+    std::function<bgfx::TextureHandle(bgfx::TextureHandle, Rml::Rectanglei, int, int, const char*, bool)>
         copy_region_to_texture;
+    std::function<bgfx::TextureHandle(bgfx::TextureHandle, Rml::Rectanglei, int, int,
+                                      Rml::Vector2i, Rml::Vector2i, const char*, bool)>
+        copy_region_to_sized_texture;
 };
 
 struct BgfxLayerSaveMaskContext {
@@ -58,7 +61,7 @@ struct BgfxLayerSaveMaskContext {
     Rml::CompiledFilterHandle* filter_counter = nullptr;
     std::function<void(const char*)> fail_frame;
     std::function<bool(Rml::LayerHandle, std::optional<FbRect>)> materialize_layer;
-    std::function<bgfx::TextureHandle(bgfx::TextureHandle, Rml::Rectanglei, int, int, const char*)>
+    std::function<bgfx::TextureHandle(bgfx::TextureHandle, Rml::Rectanglei, int, int, const char*, bool)>
         copy_region_to_texture;
 };
 

@@ -35,6 +35,25 @@ constexpr uint32_t kGradientStopLimit = 16;
     return transform_valid && transform ? transform : resources.identity_transform;
 }
 
+[[nodiscard]] std::array<float, 4> postprocess_uv_bounds(LocalFbRect source_rect,
+                                                         int texture_width,
+                                                         int texture_height)
+{
+    std::array<float, 4> bounds{};
+    if (texture_width > 0 && texture_height > 0 && !is_empty(source_rect)) {
+        bounds = uv_rect_for_source_region(source_rect, texture_width, texture_height);
+    } else {
+        bounds = {0.0f, 0.0f, 1.0f, 1.0f};
+    }
+    if (bgfx::getCaps() && bgfx::getCaps()->originBottomLeft) {
+        const float top = bounds[1];
+        const float bottom = bounds[3];
+        bounds[1] = 1.0f - bottom;
+        bounds[3] = 1.0f - top;
+    }
+    return bounds;
+}
+
 } // namespace
 
 bool BgfxDrawContext::submit_geometry(const RmlUiPass& pass, const BgfxDrawResources& resources,
@@ -151,13 +170,8 @@ bool BgfxDrawContext::submit_composite(const RmlUiPass& pass, const BgfxDrawReso
 
     bgfx::setVertexBuffer(0, resources.fullscreen_vb);
     bgfx::setTexture(0, resources.sampler, op.source.texture);
-    std::array<float, 4> bounds{};
-    if (op.source.texture_width > 0 && op.source.texture_height > 0 && !is_empty(source_rect)) {
-        bounds = uv_rect_for_source_region(source_rect, op.source.texture_width,
-                                           op.source.texture_height);
-    } else {
-        bounds = {0.0f, 0.0f, 1.0f, 1.0f};
-    }
+    const std::array<float, 4> bounds =
+        postprocess_uv_bounds(source_rect, op.source.texture_width, op.source.texture_height);
     bgfx::setUniform(resources.texcoord_bounds_uniform, bounds.data());
     if (op.filter.enabled) {
         const float opacity[4] = {op.filter.opacity, 0.0f, 0.0f, 0.0f};
@@ -177,16 +191,17 @@ bool BgfxDrawContext::submit_composite(const RmlUiPass& pass, const BgfxDrawReso
 
 bool BgfxDrawContext::submit_copy(const RmlUiPass& pass, const BgfxDrawResources& resources,
                                   bgfx::TextureHandle source, const Rml::Rectanglei& source_region,
-                                  int source_width, int source_height) const
+                                  int source_width, int source_height, bool flip_y) const
 {
     if (!bgfx::isValid(resources.copy_program) || !bgfx::isValid(resources.fullscreen_vb) ||
         !bgfx::isValid(source)) {
         return false;
     }
-    const float bounds[4] = {float(source_region.Left()) / float(std::max(source_width, 1)),
-                             float(source_region.Top()) / float(std::max(source_height, 1)),
-                             float(source_region.Right()) / float(std::max(source_width, 1)),
-                             float(source_region.Bottom()) / float(std::max(source_height, 1))};
+    const float left = float(source_region.Left()) / float(std::max(source_width, 1));
+    const float top = float(source_region.Top()) / float(std::max(source_height, 1));
+    const float right = float(source_region.Right()) / float(std::max(source_width, 1));
+    const float bottom = float(source_region.Bottom()) / float(std::max(source_height, 1));
+    const float bounds[4] = {left, flip_y ? bottom : top, right, flip_y ? top : bottom};
     bgfx::setVertexBuffer(0, resources.fullscreen_vb);
     bgfx::setTexture(0, resources.sampler, source);
     bgfx::setUniform(resources.texcoord_bounds_uniform, bounds);

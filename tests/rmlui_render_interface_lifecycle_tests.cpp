@@ -149,6 +149,13 @@ TEST_CASE("RmlUi bgfx render interface release paths tolerate stale handles")
     renderer.ReleaseFilter(filter);
     renderer.ReleaseFilter(filter);
 
+    Rml::Dictionary no_op_filter_parameters;
+    no_op_filter_parameters["value"] = Rml::Variant(1.0f);
+    const Rml::CompiledFilterHandle no_op_filter =
+        renderer.CompileFilter("opacity", no_op_filter_parameters);
+    REQUIRE(no_op_filter != 0);
+    renderer.ReleaseFilter(no_op_filter);
+
     Rml::Dictionary shader_parameters;
     shader_parameters["value"] = Rml::Variant(Rml::String("ui/noise_panel"));
     shader_parameters["dimensions"] = Rml::Variant(Rml::Vector2f(48.0f, 32.0f));

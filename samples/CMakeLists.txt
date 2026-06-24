@@ -8,6 +8,7 @@ endif()
 get_filename_component(RMLUI_BGFX_RMLUI_SOURCE_DIR "${RMLUI_BGFX_RMLUI_SOURCE_DIR}" ABSOLUTE)
 
 find_package(SDL3 CONFIG REQUIRED)
+find_package(SDL3_image CONFIG REQUIRED)
 find_package(Freetype REQUIRED)
 find_package(harfbuzz CONFIG REQUIRED)
 find_package(Lua REQUIRED)
@@ -123,6 +124,78 @@ if(RMLUI_FONT_ENGINE_ENABLED AND NOT TARGET rmlui_bgfx_sample_effects_probe)
     target_link_libraries(rmlui_bgfx_sample_effects_probe PRIVATE rmlui_shell)
 endif()
 
+if(RMLUI_FONT_ENGINE_ENABLED AND NOT TARGET rmlui_bgfx_sample_effects_probe_gl3)
+    if(NOT TARGET SDL::SDL)
+        add_library(SDL::SDL INTERFACE IMPORTED)
+        target_link_libraries(SDL::SDL INTERFACE SDL3::SDL3)
+        target_compile_definitions(SDL::SDL INTERFACE RMLUI_SDL_VERSION_MAJOR=3)
+    endif()
+    if(NOT TARGET SDL_image::SDL_image)
+        add_library(SDL_image::SDL_image INTERFACE IMPORTED)
+        target_link_libraries(SDL_image::SDL_image INTERFACE SDL3_image::SDL3_image)
+    endif()
+    if(NOT TARGET rmlui_backend_common_headers)
+        add_library(rmlui_backend_common_headers INTERFACE)
+        target_include_directories(rmlui_backend_common_headers INTERFACE
+            "${RMLUI_BGFX_RMLUI_SOURCE_DIR}/Backends"
+        )
+        target_sources(rmlui_backend_common_headers INTERFACE
+            "${RMLUI_BGFX_RMLUI_SOURCE_DIR}/Backends/RmlUi_Backend.h"
+        )
+    endif()
+
+    add_library(rmlui_backend_SDL_GL3_probe INTERFACE)
+    target_sources(rmlui_backend_SDL_GL3_probe INTERFACE
+        "${RMLUI_BGFX_RMLUI_SOURCE_DIR}/Backends/RmlUi_Platform_SDL.cpp"
+        "${RMLUI_BGFX_RMLUI_SOURCE_DIR}/Backends/RmlUi_Renderer_GL3.cpp"
+        "${RMLUI_BGFX_RMLUI_SOURCE_DIR}/Backends/RmlUi_Backend_SDL_GL3.cpp"
+        "${RMLUI_BGFX_RMLUI_SOURCE_DIR}/Backends/RmlUi_Platform_SDL.h"
+        "${RMLUI_BGFX_RMLUI_SOURCE_DIR}/Backends/RmlUi_Renderer_GL3.h"
+        "${RMLUI_BGFX_RMLUI_SOURCE_DIR}/Backends/RmlUi_Include_GL3.h"
+        "${RMLUI_BGFX_RMLUI_SOURCE_DIR}/Backends/RmlUi_Backend.h"
+    )
+    target_include_directories(rmlui_backend_SDL_GL3_probe INTERFACE
+        "${RMLUI_BGFX_RMLUI_SOURCE_DIR}/Backends"
+    )
+    target_link_libraries(rmlui_backend_SDL_GL3_probe INTERFACE
+        rmlui_backend_common_headers
+        SDL::SDL
+        SDL_image::SDL_image
+    )
+    if(UNIX)
+        target_link_libraries(rmlui_backend_SDL_GL3_probe INTERFACE ${CMAKE_DL_LIBS})
+    endif()
+    if(EMSCRIPTEN)
+        target_link_libraries(rmlui_backend_SDL_GL3_probe INTERFACE OpenGL::GL)
+    endif()
+
+    add_library(rmlui_shell_gl3 STATIC
+        "${RMLUI_BGFX_RMLUI_SOURCE_DIR}/Samples/shell/src/PlatformExtensions.cpp"
+        "${RMLUI_BGFX_RMLUI_SOURCE_DIR}/Samples/shell/src/RendererExtensions.cpp"
+        "${RMLUI_BGFX_RMLUI_SOURCE_DIR}/Samples/shell/src/Shell.cpp"
+        "${RMLUI_BGFX_RMLUI_SOURCE_DIR}/Samples/shell/src/ShellFileInterface.cpp"
+    )
+    set_common_target_options(rmlui_shell_gl3)
+    target_include_directories(rmlui_shell_gl3 PUBLIC
+        "${RMLUI_BGFX_RMLUI_SOURCE_DIR}/Samples/shell/include"
+        "${RMLUI_BGFX_RMLUI_SOURCE_DIR}/Backends"
+    )
+    target_compile_definitions(rmlui_shell_gl3 PRIVATE RMLUI_RENDERER_GL3)
+    target_link_libraries(rmlui_shell_gl3
+        PRIVATE rmlui_backend_SDL_GL3_probe
+        PUBLIC rmlui_core rmlui_debugger
+    )
+
+    add_executable(rmlui_bgfx_sample_effects_probe_gl3 WIN32
+        "${CMAKE_CURRENT_LIST_DIR}/effects_probe/src/main.cpp"
+    )
+    set_common_target_options(rmlui_bgfx_sample_effects_probe_gl3)
+    target_compile_definitions(rmlui_bgfx_sample_effects_probe_gl3 PRIVATE
+        RMLUI_BGFX_EFFECTS_PROBE_DATA_DIR="${CMAKE_CURRENT_LIST_DIR}/effects_probe/data"
+    )
+    target_link_libraries(rmlui_bgfx_sample_effects_probe_gl3 PRIVATE rmlui_shell_gl3)
+endif()
+
 set(PROJECT_SOURCE_DIR "${_saved_project_source_dir}")
 
 set(_rmlui_bgfx_sample_targets
@@ -135,6 +208,7 @@ set(_rmlui_bgfx_sample_targets
     rmlui_bgfx_sample_drag
     rmlui_bgfx_sample_effects
     rmlui_bgfx_sample_effects_probe
+    rmlui_bgfx_sample_effects_probe_gl3
     rmlui_bgfx_sample_harfbuzz
     rmlui_bgfx_sample_invaders
     rmlui_bgfx_sample_load_document

@@ -2,6 +2,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <optional>
 #include <unordered_map>
 #include <vector>
 
@@ -43,11 +44,12 @@ TEST_CASE("RmlUi saved mask image uses valid content bounds")
     ctx.filter_counter = &filter_counter;
     ctx.materialize_layer = [](Rml::LayerHandle, std::optional<FbRect>) { return true; };
     ctx.copy_region_to_texture = [&](bgfx::TextureHandle, Rml::Rectanglei region, int source_width,
-                                     int source_height, const char* name) {
+                                     int source_height, const char* name, bool flip_y) {
         copied_region = region;
         copied_source_width = source_width;
         copied_source_height = source_height;
         copy_name = name;
+        CHECK_FALSE(flip_y);
         return bgfx::TextureHandle{9};
     };
 
@@ -80,6 +82,134 @@ TEST_CASE("RmlUi saved mask image uses valid content bounds")
     CHECK(record.mask_bounds[1] == 40);
     CHECK(record.mask_bounds[2] == 20);
     CHECK(record.mask_bounds[3] == 15);
+
+    layer.framebuffer = BGFX_INVALID_HANDLE;
+}
+
+TEST_CASE("RmlUi saved layer texture materializes requested save bounds")
+{
+    BgfxTargetCache target_cache;
+    BgfxLayerSystem layer_system(target_cache);
+    layer_system.begin_frame();
+
+    LayerRecord& layer = target_cache.prepare_virtual_layer_slot(1);
+    layer.framebuffer = bgfx::FrameBufferHandle{3};
+    layer.color = bgfx::TextureHandle{4};
+    layer.bounds = RenderBounds{{0.0f, 0.0f, 200.0f, 200.0f}, {0, 0, 200, 200}};
+    layer.valid_content_bounds = {50, 60, 20, 20};
+    layer.has_valid_content_bounds = true;
+    layer.texture_width = 200;
+    layer.texture_height = 200;
+    layer.kind = LayerKind::VirtualChild;
+    layer.materialized = true;
+
+    layer_system.push_layer(1);
+
+    std::unordered_map<Rml::TextureHandle, TextureRecord> textures;
+    Rml::TextureHandle texture_counter = 10;
+    std::optional<FbRect> materialize_required_bounds;
+    Rml::Rectanglei copied_region = Rml::Rectanglei::FromPositionSize({0, 0}, {0, 0});
+
+    BgfxLayerSaveTextureContext ctx;
+    ctx.textures = &textures;
+    ctx.texture_counter = &texture_counter;
+    ctx.current_save_bounds = [] {
+        return Rml::Rectanglei::FromPositionSize({10, 20}, {100, 80});
+    };
+    ctx.materialize_layer = [&](Rml::LayerHandle, std::optional<FbRect> required_bounds) {
+        materialize_required_bounds = required_bounds;
+        return true;
+    };
+    ctx.copy_region_to_texture = [&](bgfx::TextureHandle, Rml::Rectanglei region, int, int,
+                                     const char*, bool flip_y) {
+        copied_region = region;
+        CHECK(flip_y);
+        return bgfx::TextureHandle{9};
+    };
+
+    const Rml::TextureHandle texture = layer_system.save_layer_as_texture(ctx);
+
+    REQUIRE(texture == 11);
+    REQUIRE(materialize_required_bounds.has_value());
+    CHECK(materialize_required_bounds->x == 10);
+    CHECK(materialize_required_bounds->y == 20);
+    CHECK(materialize_required_bounds->w == 100);
+    CHECK(materialize_required_bounds->h == 80);
+    CHECK(copied_region.Left() == 10);
+    CHECK(copied_region.Top() == 20);
+    CHECK(copied_region.Width() == 100);
+    CHECK(copied_region.Height() == 80);
+    REQUIRE(textures.contains(texture));
+    CHECK(textures.at(texture).dimensions.x == 100);
+    CHECK(textures.at(texture).dimensions.y == 80);
+
+    layer.framebuffer = BGFX_INVALID_HANDLE;
+}
+
+TEST_CASE("RmlUi saved layer texture preserves requested padded bounds")
+{
+    BgfxTargetCache target_cache;
+    BgfxLayerSystem layer_system(target_cache);
+    layer_system.begin_frame();
+
+    LayerRecord& layer = target_cache.prepare_virtual_layer_slot(1);
+    layer.framebuffer = bgfx::FrameBufferHandle{3};
+    layer.color = bgfx::TextureHandle{4};
+    layer.bounds = RenderBounds{{50.0f, 60.0f, 20.0f, 20.0f}, {50, 60, 20, 20}};
+    layer.valid_content_bounds = {50, 60, 20, 20};
+    layer.has_valid_content_bounds = true;
+    layer.texture_width = 20;
+    layer.texture_height = 20;
+    layer.kind = LayerKind::VirtualChild;
+    layer.materialized = true;
+
+    layer_system.push_layer(1);
+
+    std::unordered_map<Rml::TextureHandle, TextureRecord> textures;
+    Rml::TextureHandle texture_counter = 10;
+    bool old_copy_called = false;
+    Rml::Rectanglei copied_region = Rml::Rectanglei::FromPositionSize({0, 0}, {0, 0});
+    Rml::Vector2i copied_output_dimensions;
+    Rml::Vector2i copied_destination_offset;
+
+    BgfxLayerSaveTextureContext ctx;
+    ctx.textures = &textures;
+    ctx.texture_counter = &texture_counter;
+    ctx.current_save_bounds = [] {
+        return Rml::Rectanglei::FromPositionSize({10, 20}, {100, 80});
+    };
+    ctx.materialize_layer = [](Rml::LayerHandle, std::optional<FbRect>) { return true; };
+    ctx.copy_region_to_texture = [&](bgfx::TextureHandle, Rml::Rectanglei, int, int, const char*,
+                                     bool) {
+        old_copy_called = true;
+        return bgfx::TextureHandle{8};
+    };
+    ctx.copy_region_to_sized_texture = [&](bgfx::TextureHandle, Rml::Rectanglei region, int, int,
+                                           Rml::Vector2i output_dimensions,
+                                           Rml::Vector2i destination_offset, const char*,
+                                           bool flip_y) {
+        copied_region = region;
+        copied_output_dimensions = output_dimensions;
+        copied_destination_offset = destination_offset;
+        CHECK(flip_y);
+        return bgfx::TextureHandle{9};
+    };
+
+    const Rml::TextureHandle texture = layer_system.save_layer_as_texture(ctx);
+
+    REQUIRE(texture == 11);
+    CHECK_FALSE(old_copy_called);
+    CHECK(copied_region.Left() == 0);
+    CHECK(copied_region.Top() == 0);
+    CHECK(copied_region.Width() == 20);
+    CHECK(copied_region.Height() == 20);
+    CHECK(copied_output_dimensions.x == 100);
+    CHECK(copied_output_dimensions.y == 80);
+    CHECK(copied_destination_offset.x == 40);
+    CHECK(copied_destination_offset.y == 40);
+    REQUIRE(textures.contains(texture));
+    CHECK(textures.at(texture).dimensions.x == 100);
+    CHECK(textures.at(texture).dimensions.y == 80);
 
     layer.framebuffer = BGFX_INVALID_HANDLE;
 }

@@ -1,0 +1,22 @@
+<rml>
+<head>
+<link type="text/rcss" href="common.rcss"/>
+<title>Effects Probe 11</title>
+<style>
+.trail {
+    box-shadow:
+        #f66 30dp 30dp 0 0,
+        #c88 60dp 60dp 0 0,
+        #baa 90dp 90dp 0 0;
+}
+</style>
+</head>
+<body>
+<h1>Effects Probe 11: CSS box-shadow outer-only</h1>
+<div class="content">
+    <div class="note">Expected: this should match the outer red/rose/tan shadow slabs from probe 02, but without the inset blurred shadow. If this passes while 02 fails, the failing path is the mixed inset/blurred shadow in the real GeometryBoxShadow callback.</div>
+    <div class="row"><div class="label">outer CSS box-shadow</div><div class="box trail">Hello, do you feel the funk?</div></div>
+    <div style="height: 650dp">Scroll filler</div>
+</div>
+</body>
+</rml>

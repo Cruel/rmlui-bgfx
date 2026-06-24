@@ -91,7 +91,7 @@ public:
 
     bool submit_copy(const RmlUiPass& pass, const BgfxDrawResources& resources,
                      bgfx::TextureHandle source, const Rml::Rectanglei& source_region,
-                     int source_width, int source_height) const;
+                     int source_width, int source_height, bool flip_y = false) const;
 
     void submit_blit(const RmlUiPass& pass, bgfx::TextureHandle destination,
                      bgfx::TextureHandle source, const Rml::Rectanglei& source_region) const;

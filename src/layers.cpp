@@ -436,31 +436,47 @@ Rml::TextureHandle BgfxLayerSystem::save_layer_as_texture(const BgfxLayerSaveTex
         }
         return 0;
     }
-    if (!ctx.materialize_layer || !ctx.materialize_layer(m_active_layer, std::nullopt)) {
+    if (!ctx.current_save_bounds) {
+        return 0;
+    }
+    const Rml::Rectanglei bounds = ctx.current_save_bounds();
+    if (bounds.Width() <= 0 || bounds.Height() <= 0) {
+        return 0;
+    }
+    const FbRect global_bounds{bounds.Left(), bounds.Top(), bounds.Width(), bounds.Height()};
+
+    if (!ctx.materialize_layer ||
+        !ctx.materialize_layer(m_active_layer, std::optional<FbRect>{global_bounds})) {
         if (ctx.fail_frame) {
             ctx.fail_frame("SaveLayerAsTexture failed to materialize layer");
         }
         return 0;
     }
     LayerRecord* layer = materialized_layer_for_handle(m_active_layer, ctx.direct_base_requested);
-    if (!layer || !bgfx::isValid(layer->color) || !ctx.current_save_bounds ||
-        !ctx.copy_region_to_texture || !ctx.textures || !ctx.texture_counter) {
+    if (!layer || !bgfx::isValid(layer->color) || !ctx.copy_region_to_texture ||
+        !ctx.textures || !ctx.texture_counter) {
         return 0;
     }
-
-    const Rml::Rectanglei bounds = ctx.current_save_bounds();
-    if (bounds.Width() <= 0 || bounds.Height() <= 0) {
-        return 0;
-    }
-    const FbRect global_bounds{bounds.Left(), bounds.Top(), bounds.Width(), bounds.Height()};
     const FbRect local_bounds = local_rect_for_layer(global_bounds, *layer);
     if (is_empty(local_bounds)) {
         return 0;
     }
 
-    bgfx::TextureHandle texture = ctx.copy_region_to_texture(
-        layer->color, rectangle_from_fb(local_bounds), layer->texture_width, layer->texture_height,
-        "RmlUi.SaveLayerAsTexture");
+    bgfx::TextureHandle texture = BGFX_INVALID_HANDLE;
+    const Rml::Vector2i output_dimensions{bounds.Width(), bounds.Height()};
+    if (local_bounds.w == global_bounds.w && local_bounds.h == global_bounds.h) {
+        texture = ctx.copy_region_to_texture(layer->color, rectangle_from_fb(local_bounds),
+                                             layer->texture_width, layer->texture_height,
+                                             "RmlUi.SaveLayerAsTexture", true);
+    } else if (ctx.copy_region_to_sized_texture) {
+        const FbRect overlap_global = intersect(global_bounds, layer->bounds.framebuffer);
+        const Rml::Vector2i destination_offset{overlap_global.x - global_bounds.x,
+                                               overlap_global.y - global_bounds.y};
+        texture = ctx.copy_region_to_sized_texture(
+            layer->color, rectangle_from_fb(local_bounds), layer->texture_width,
+            layer->texture_height, output_dimensions, destination_offset,
+            "RmlUi.SaveLayerAsTexture", true);
+    }
     if (!bgfx::isValid(texture)) {
         if (ctx.fail_frame) {
             ctx.fail_frame("SaveLayerAsTexture failed to copy layer contents");
@@ -518,7 +534,7 @@ BgfxLayerSystem::save_layer_as_mask_image(const BgfxLayerSaveMaskContext& ctx)
 
     bgfx::TextureHandle mask_texture = ctx.copy_region_to_texture(
         layer->color, rectangle_from_fb(mask_local_bounds), layer->texture_width,
-        layer->texture_height, "RmlUi.SaveLayerAsMaskImage");
+        layer->texture_height, "RmlUi.SaveLayerAsMaskImage", false);
     if (!bgfx::isValid(mask_texture)) {
         if (ctx.fail_frame) {
             ctx.fail_frame("SaveLayerAsMaskImage failed to copy layer contents");

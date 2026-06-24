@@ -107,7 +107,7 @@ scrollbarvertical sliderbar {
     border: 2dp #d3e9ea;
     border-radius: 20dp;
     padding: 30dp;
-    background: linear-gradient(110deg, #f66 0%, #f66 20%, #6f6 20%, #6f6 40%, #66f 40%, #66f 60%, #ff6 60%, #ff6 80%, #6ff 80%);
+    decorator: linear-gradient(110deg, #f66, #f66 20%, #6f6 20%, #6f6 40%, #66f 40%, #66f 60%, #ff6 60%, #ff6 80%, #6ff 80%);
 }
 
 .reference-frame {
