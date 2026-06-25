@@ -1364,36 +1364,48 @@ ReferenceTextureRegion BgfxReferenceRenderer::apply_filters(
             break;
         }
         case FilterKind::DropShadow: {
-            const ReferenceTarget* original = current;
+            ReferenceTarget* original = current;
+            std::array<ReferenceTarget*, 2> scratch{};
+            size_t scratch_count = 0;
+            for (ReferenceTarget* target : {primary, secondary, tertiary}) {
+                if (target != original) {
+                    scratch[scratch_count++] = target;
+                }
+            }
+            if (scratch_count != scratch.size()) {
+                return {};
+            }
+            ReferenceTarget* shadow = scratch[0];
+            ReferenceTarget* final = scratch[1];
+
             const float color[4] = {filter.color[0], filter.color[1], filter.color[2],
                                     filter.color[3]};
-            const float offset[4] = {
-                filter.offset[0] / float(std::max(destination->width, 1)),
-                filter.offset[1] / float(std::max(destination->height, 1)), 0.0f, 0.0f};
+            const float offset[4] = {filter.offset[0] / float(std::max(shadow->width, 1)),
+                                     -filter.offset[1] / float(std::max(shadow->height, 1)), 0.0f,
+                                     0.0f};
             if (!fullscreen_postprocess(
-                    current->color, *destination, "RmlUi.ReferenceFilterDropShadowExtract",
+                    original->color, *shadow, "RmlUi.ReferenceFilterDropShadowExtract",
                     RmlUiPassReason::FilterDropShadow, [&](const RmlUiPass& pass) {
                         return m_ctx.draw_context->submit_drop_shadow(
-                            pass, draw_resources(), current->color, color, offset);
+                            pass, draw_resources(), original->color, color, offset);
                     })) {
                 return {};
             }
             if (m_ctx.perf) {
                 m_ctx.perf->add_dropshadow();
             }
-            std::swap(current, destination);
             if (filter.sigma >= 0.5f) {
                 const BlurShaderParameters blur = blur_shader_parameters(filter.sigma);
                 const float bounds[4] = {0.0f, 0.0f, 1.0f, 1.0f};
                 float params[4] = {0.0f,
-                                   blur.texel_scale / float(std::max(destination->height, 1)),
+                                   blur.texel_scale / float(std::max(final->height, 1)),
                                    blur.sigma,
                                    blur.texel_scale};
                 if (!fullscreen_postprocess(
-                        current->color, *destination, "RmlUi.ReferenceFilterDropShadowBlurV",
+                        shadow->color, *final, "RmlUi.ReferenceFilterDropShadowBlurV",
                         RmlUiPassReason::FilterBlur, [&](const RmlUiPass& pass) {
                             return m_ctx.draw_context->submit_blur(pass, draw_resources(),
-                                                                   current->color, params,
+                                                                   shadow->color, params,
                                                                    blur.weights, bounds);
                         })) {
                     return {};
@@ -1401,14 +1413,14 @@ ReferenceTextureRegion BgfxReferenceRenderer::apply_filters(
                 if (m_ctx.perf) {
                     m_ctx.perf->add_blur();
                 }
-                std::swap(current, destination);
-                params[0] = blur.texel_scale / float(std::max(destination->width, 1));
+                std::swap(shadow, final);
+                params[0] = blur.texel_scale / float(std::max(final->width, 1));
                 params[1] = 0.0f;
                 if (!fullscreen_postprocess(
-                        current->color, *destination, "RmlUi.ReferenceFilterDropShadowBlurH",
+                        shadow->color, *final, "RmlUi.ReferenceFilterDropShadowBlurH",
                         RmlUiPassReason::FilterBlur, [&](const RmlUiPass& pass) {
                             return m_ctx.draw_context->submit_blur(pass, draw_resources(),
-                                                                   current->color, params,
+                                                                   shadow->color, params,
                                                                    blur.weights, bounds);
                         })) {
                     return {};
@@ -1416,26 +1428,25 @@ ReferenceTextureRegion BgfxReferenceRenderer::apply_filters(
                 if (m_ctx.perf) {
                     m_ctx.perf->add_blur();
                 }
-                std::swap(current, destination);
+                std::swap(shadow, final);
             }
-            ReferenceTextureRegion shadow_region = target_region(*current);
-            if (!submit_composite(shadow_region, tertiary->framebuffer, Rml::BlendMode::Replace,
+            ReferenceTextureRegion shadow_region = target_region(*shadow);
+            if (!submit_composite(shadow_region, final->framebuffer, Rml::BlendMode::Replace,
                                   ScissorState{false, {}}, false, 1, RmlUiPassKind::Postprocess,
                                   RmlUiPassReason::FilterDropShadowComposite,
                                   "RmlUi.ReferenceFilterDropShadowCopy",
                                   full_frame_rect(m_surface))) {
                 return {};
             }
-            if (!submit_composite(target_region(*original), tertiary->framebuffer,
-                                  Rml::BlendMode::Blend, ScissorState{false, {}}, false, 1,
-                                  RmlUiPassKind::Postprocess,
+            if (!submit_composite(target_region(*original), final->framebuffer, Rml::BlendMode::Blend,
+                                  ScissorState{false, {}}, false, 1, RmlUiPassKind::Postprocess,
                                   RmlUiPassReason::FilterDropShadowComposite,
                                   "RmlUi.ReferenceFilterDropShadowComposite",
                                   full_frame_rect(m_surface))) {
                 return {};
             }
-            current = tertiary;
-            destination = (original == primary) ? secondary : primary;
+            current = final;
+            destination = original;
             ok = true;
             break;
         }
