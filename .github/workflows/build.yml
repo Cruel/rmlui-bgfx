@@ -44,6 +44,8 @@ jobs:
             libgl1-mesa-dev \
             libibus-1.0-dev \
             libtool \
+            libltdl-dev \
+            libxtst-dev \
             libwayland-dev \
             libx11-dev \
             libxcursor-dev \
