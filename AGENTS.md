@@ -16,12 +16,12 @@ Common local layout during development:
 - Upstream RmlUi checkout: `/home/thomas/dev/nt/refs/RmlUi`
 - Upstream GL3 reference renderer: `/home/thomas/dev/nt/refs/RmlUi/Backends/RmlUi_Renderer_GL3.cpp`
 
-Run sample binaries from the upstream RmlUi checkout root so relative sample assets resolve:
+Run upstream sample binaries from the upstream RmlUi checkout root so relative sample assets resolve. The focused effects probe owns its own RML data under this repository, but running from the upstream checkout is still a convenient convention:
 
 ```sh
 cd /home/thomas/dev/nt/refs/RmlUi
-../../rmlui-bgfx/build/linux-samples/samples/rmlui_bgfx_sample_effects_probe 12
-../../rmlui-bgfx/build/linux-samples/samples/rmlui_bgfx_sample_effects_probe_gl3 12
+../../rmlui-bgfx/build/linux-samples/samples/rmlui_bgfx_sample_effects_probe 00
+../../rmlui-bgfx/build/linux-samples/samples/rmlui_bgfx_sample_effects_probe_gl3 00
 ```
 
 ## Build and validation commands
@@ -93,28 +93,14 @@ Typical commands:
 
 ```sh
 cd /home/thomas/dev/nt/refs/RmlUi
-RMLUI_BGFX_RENDER_PATH=reference ../../rmlui-bgfx/build/linux-samples/samples/rmlui_bgfx_sample_effects_probe 12
-RMLUI_BGFX_RENDER_PATH=optimized ../../rmlui-bgfx/build/linux-samples/samples/rmlui_bgfx_sample_effects_probe 12
-../../rmlui-bgfx/build/linux-samples/samples/rmlui_bgfx_sample_effects_probe_gl3 12
+RMLUI_BGFX_RENDER_PATH=reference ../../rmlui-bgfx/build/linux-samples/samples/rmlui_bgfx_sample_effects_probe 00
+RMLUI_BGFX_RENDER_PATH=optimized ../../rmlui-bgfx/build/linux-samples/samples/rmlui_bgfx_sample_effects_probe 00
+../../rmlui-bgfx/build/linux-samples/samples/rmlui_bgfx_sample_effects_probe_gl3 00
 ```
 
 Use the same case number in bgfx and GL3. Do not claim visual correctness without a user/manual visual check.
 
-Useful case order when debugging effects:
-
-1. `00` baseline document clipping and scrolling.
-2. `01` rounded overflow/clip masks.
-3. `08` direct low-level `SetInverse` stencil probe.
-4. `09` callback texture plus `SaveLayerAsTexture`.
-5. `10` rounded `RenderBox` shadow meshes.
-6. `11` outer CSS box-shadow.
-7. `12` CSS inset box-shadow.
-8. `13` manual inset blur callback texture.
-9. `14` inset source clipping without blur.
-10. `15` child-layer composite without blur.
-11. `16` child-layer blur without clip masks.
-12. `17` child-layer blur with inverse clip only.
-13. `02`, `03`, `04`, `05`, `06` for broader effects/backdrop/mask coverage.
+The current probe cases are document-level slices of the full upstream effects sample. They cover overview, color filters, blur/drop-shadow filters, box shadows, decorators/masks, backdrop filters, transform/filter composition, animation, fixed windows, and menu/form controls. The old low-level numbered callback/stencil probes were intentionally removed from the active harness after they passed.
 
 ## Diagnostics policy
 

@@ -107,6 +107,7 @@ struct ReferenceTarget {
     int width = 0;
     int height = 0;
     PostprocessTargetKind kind = PostprocessTargetKind::Primary;
+    uint64_t last_used_frame = 0;
 };
 
 struct ReferenceClipCommand {
@@ -177,6 +178,7 @@ private:
     void destroy_target(ReferenceTarget& target);
     void destroy_layers();
     void destroy_targets();
+    void prune_unused_targets();
 
     void clear_layer(ReferenceLayer& layer, const char* name);
     void fail_frame(const char* message);
@@ -235,6 +237,7 @@ private:
     std::vector<Rml::LayerHandle> m_layer_stack;
     std::vector<ReferenceClipCommand> m_clip_commands;
 
+    uint64_t m_frame_index = 0;
     bool m_frame_failed = false;
     bool m_scissor_enabled = false;
     Rml::Rectanglei m_scissor_region = Rml::Rectanglei::FromPositionSize({0, 0}, {0, 0});

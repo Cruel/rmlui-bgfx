@@ -1,0 +1,27 @@
+<rml>
+<head>
+<link type="text/rcss" href="common.rcss"/>
+<title>Shader Probe 01</title>
+<style>
+.dimensions { decorator: shader("abi_dimensions"); }
+</style>
+</head>
+<body>
+<h1>Shader Probe 01 — paint dimensions</h1>
+<p class="note">Tests u_rmluiMaterialParams0.yz. Different element sizes should produce visibly different colors and grid scaling.</p>
+<div class="content row">
+    <div class="cell">
+        <div class="label">small: 230 x 150</div>
+        <div class="panel small dimensions"><div class="caption">width / height</div></div>
+    </div>
+    <div class="cell">
+        <div class="label">normal: 360 x 220</div>
+        <div class="panel dimensions"><div class="caption">width / height</div></div>
+    </div>
+    <div class="cell">
+        <div class="label">tall: 260 x 320</div>
+        <div class="panel tall dimensions"><div class="caption">width / height</div></div>
+    </div>
+</div>
+</body>
+</rml>

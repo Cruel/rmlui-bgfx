@@ -1,6 +1,7 @@
 #include "RmlUi_Backend.h"
 #include "RmlUi_Platform_SDL.h"
 
+#include <rmlui_bgfx/precompiled_material_shader_provider.hpp>
 #include <rmlui_bgfx/render_interface.hpp>
 
 #include <RmlUi/Core/Context.h>
@@ -325,10 +326,13 @@ struct BackendData {
     SampleShaderProvider shaders;
     SampleTextureLoader textures;
     SampleDiagnostics diagnostics;
+    std::unique_ptr<rmlui_bgfx::PrecompiledMaterialShaderProvider> material_shaders;
     std::unique_ptr<rmlui_bgfx::RenderInterface> render_interface;
     SDL_Window* window = nullptr;
     bool running = true;
     bool bgfx_initialized = false;
+    Rml::Vector2f mouse_position = Rml::Vector2f(-1.0f, -1.0f);
+    bool mouse_position_valid = false;
 };
 
 static Rml::UniquePtr<BackendData> data;
@@ -411,12 +415,29 @@ bool Backend::Initialize(const char* window_name, int width, int height, bool al
     data = Rml::MakeUnique<BackendData>(window);
     data->bgfx_initialized = true;
 
+    rmlui_bgfx::PrecompiledMaterialShaderProviderConfig material_config;
+    material_config.root_directory = RMLUI_BGFX_SAMPLE_SHADER_DIR;
+    material_config.diagnostics = &data->diagnostics;
+    data->material_shaders =
+        std::make_unique<rmlui_bgfx::PrecompiledMaterialShaderProvider>(std::move(material_config));
+    data->material_shaders->register_shader(std::string("abi_time"),
+                                            std::string("material_abi_time"));
+    data->material_shaders->register_shader(std::string("abi_dimensions"),
+                                            std::string("material_abi_dimensions"));
+    data->material_shaders->register_shader(std::string("abi_dpi"),
+                                            std::string("material_abi_dpi"));
+    data->material_shaders->register_shader(std::string("abi_mouse"),
+                                            std::string("material_abi_mouse"));
+    data->material_shaders->register_shader(std::string("abi_combined"),
+                                            std::string("material_abi_combined"));
+
     rmlui_bgfx::RendererConfig config;
     config.surface = surface;
-    config.views = rmlui_bgfx::ViewRange{0, 192};
+    config.views = rmlui_bgfx::ViewRange{0, 255};
     config.shaders = &data->shaders;
     config.textures = &data->textures;
     config.diagnostics = &data->diagnostics;
+    config.material_shaders = data->material_shaders.get();
     config.render_path = render_path_from_env();
     config.blur_sample_bounds_mode = blur_sample_bounds_mode_from_env();
     config.reference_msaa_samples = reference_msaa_samples_from_env();
@@ -506,6 +527,20 @@ bool Backend::ProcessEvents(Rml::Context* context, KeyDownCallback key_down_call
         case SDL_EVENT_TEXT_EDITING:
             propagate_event = false;
             data->text_input_method_editor.HandleEdit(ev.edit);
+            break;
+        case SDL_EVENT_MOUSE_MOTION:
+            data->mouse_position = Rml::Vector2f(ev.motion.x, ev.motion.y);
+            data->mouse_position_valid = true;
+            if (data->material_shaders) {
+                data->material_shaders->set_mouse_position(data->mouse_position, true);
+            }
+            break;
+        case SDL_EVENT_WINDOW_MOUSE_LEAVE:
+            data->mouse_position = Rml::Vector2f(-1.0f, -1.0f);
+            data->mouse_position_valid = false;
+            if (data->material_shaders) {
+                data->material_shaders->clear_mouse_position();
+            }
             break;
         case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
             resize_backend(data->window);

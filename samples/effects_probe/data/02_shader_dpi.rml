@@ -1,0 +1,19 @@
+<rml>
+<head>
+<link type="text/rcss" href="common.rcss"/>
+<title>Shader Probe 02</title>
+<style>
+.dpi { decorator: shader("abi_dpi"); }
+</style>
+</head>
+<body>
+<h1>Shader Probe 02 — DPI/content scale</h1>
+<p class="note">Tests u_rmluiMaterialParams0.w. On a 1x display the panel should be mostly blue-green. Higher DPI/content scale should push it warmer and tighten the stripes.</p>
+<div class="content row">
+    <div class="cell">
+        <div class="label">DPI/content scale material parameter</div>
+        <div class="panel wide dpi"><div class="caption">dpi scale</div></div>
+    </div>
+</div>
+</body>
+</rml>

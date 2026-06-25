@@ -1,0 +1,29 @@
+<rml>
+<head>
+<link type="text/rcss" href="common.rcss"/>
+<title>Shader Probe 04</title>
+<style>
+.combined { decorator: shader("abi_combined"); }
+</style>
+</head>
+<body>
+<h1>Shader Probe 04 — combined material ABI</h1>
+<p class="note">Tests all standard material uniforms together: time, width, height, DPI/content scale, mouse x/y, and mouse validity.</p>
+<div class="content row">
+    <div class="cell">
+        <div class="label">combined ABI, wide</div>
+        <div class="panel wide combined"><div class="caption">time size dpi mouse</div></div>
+    </div>
+</div>
+<div class="row">
+    <div class="cell">
+        <div class="label">combined ABI, small</div>
+        <div class="panel small combined"><div class="caption">same uniforms</div></div>
+    </div>
+    <div class="cell">
+        <div class="label">combined ABI, tall</div>
+        <div class="panel tall combined"><div class="caption">same uniforms</div></div>
+    </div>
+</div>
+</body>
+</rml>

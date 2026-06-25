@@ -149,6 +149,7 @@ void BgfxReferenceRenderer::begin_frame(const SurfaceMetrics& surface,
 {
     m_surface = sanitize_surface_metrics(surface);
     m_depth_stencil_format = depth_stencil_format;
+    ++m_frame_index;
     m_frame_failed = false;
     m_scissor_enabled = false;
     m_scissor_region = Rml::Rectanglei::FromPositionSize(
@@ -184,6 +185,7 @@ void BgfxReferenceRenderer::end_frame()
     if (m_frame_failed) {
         m_layer_stack.clear();
         m_layer_stack.push_back(Rml::LayerHandle(0));
+        prune_unused_targets();
         return;
     }
     if (m_layer_stack.size() != 1) {
@@ -203,6 +205,7 @@ void BgfxReferenceRenderer::end_frame()
                           full_frame_rect(m_surface))) {
         fail_frame("reference renderer final composite failed");
     }
+    prune_unused_targets();
 }
 
 void BgfxReferenceRenderer::enable_scissor_region(bool enable)
@@ -845,6 +848,7 @@ ReferenceTarget* BgfxReferenceRenderer::ensure_target(PostprocessTargetKind kind
         if (target.kind == kind && bgfx::isValid(target.framebuffer) && target.width == clamped.w &&
             target.height == clamped.h) {
             target.bounds = clamped;
+            target.last_used_frame = m_frame_index;
             if (m_ctx.perf) {
                 m_ctx.perf->add_postprocess_target_use(uint32_t(target.width),
                                                        uint32_t(target.height),
@@ -867,7 +871,7 @@ ReferenceTarget* BgfxReferenceRenderer::ensure_target(PostprocessTargetKind kind
         bgfx::destroy(color);
         return nullptr;
     }
-    m_targets.push_back({framebuffer, color, clamped, clamped.w, clamped.h, kind});
+    m_targets.push_back({framebuffer, color, clamped, clamped.w, clamped.h, kind, m_frame_index});
     ReferenceTarget& target = m_targets.back();
     if (m_ctx.perf) {
         m_ctx.perf->add_pp_alloc(uint32_t(target.width), uint32_t(target.height));
@@ -925,6 +929,18 @@ void BgfxReferenceRenderer::destroy_targets()
         destroy_target(target);
     }
     m_targets.clear();
+}
+
+void BgfxReferenceRenderer::prune_unused_targets()
+{
+    for (auto it = m_targets.begin(); it != m_targets.end();) {
+        if (it->last_used_frame != m_frame_index) {
+            destroy_target(*it);
+            it = m_targets.erase(it);
+        } else {
+            ++it;
+        }
+    }
 }
 
 void BgfxReferenceRenderer::clear_layer(ReferenceLayer& layer, const char* name)

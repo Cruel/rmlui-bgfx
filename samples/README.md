@@ -30,5 +30,6 @@ Notes:
 
 - The current backend uses SDL3 for window/input/system integration and bgfx with the OpenGL renderer on Linux.
 - Texture loading is implemented through stb_image with static symbols to avoid collisions with static `rlottie` builds.
+- The effects sample wires `rmlui_bgfx::PrecompiledMaterialShaderProvider` so RmlUi shader decorators resolve to precompiled bgfx programs. This demonstrates the intended custom-shader workflow: RCSS names a shader, while the application maps that name to precompiled vertex/fragment binaries.
 - The upstream tutorials keep their original executable names (`rmlui_tutorial_drag`, `rmlui_tutorial_template`) inside this build tree.
 - This sample overlay is intended for renderer parity testing against upstream GL3 samples; it is not a replacement for an application's runtime integration.

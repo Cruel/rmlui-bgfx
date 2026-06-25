@@ -1,0 +1,19 @@
+<rml>
+<head>
+<link type="text/rcss" href="common.rcss"/>
+<title>Shader Probe 03</title>
+<style>
+.mouse { decorator: shader("abi_mouse"); }
+</style>
+</head>
+<body>
+<h1>Shader Probe 03 — mouse position</h1>
+<p class="note">Tests u_rmluiMaterialParams1.xy and z. Move the mouse over the window; color should change with global RmlUi logical mouse coordinates, and the panel should dim when the cursor leaves the window.</p>
+<div class="content row">
+    <div class="cell">
+        <div class="label">mouse x/y + validity</div>
+        <div class="panel wide mouse"><div class="caption">mouse</div></div>
+    </div>
+</div>
+</body>
+</rml>

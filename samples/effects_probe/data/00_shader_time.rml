@@ -1,0 +1,23 @@
+<rml>
+<head>
+<link type="text/rcss" href="common.rcss"/>
+<title>Shader Probe 00</title>
+<style>
+.time { decorator: shader("abi_time"); }
+</style>
+</head>
+<body>
+<h1>Shader Probe 00 — elapsed time</h1>
+<p class="note">Tests u_rmluiMaterialParams0.x. The panels should animate continuously and stay synchronized except for their UV-dependent pattern.</p>
+<div class="content row">
+    <div class="cell">
+        <div class="label">time shader, 360 x 220</div>
+        <div class="panel time"><div class="caption">time</div></div>
+    </div>
+    <div class="cell">
+        <div class="label">same shader, small target</div>
+        <div class="panel small time"><div class="caption">time</div></div>
+    </div>
+</div>
+</body>
+</rml>

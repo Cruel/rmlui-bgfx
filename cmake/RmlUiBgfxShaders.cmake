@@ -9,6 +9,11 @@ set(RMLUI_BGFX_SHADER_PROGRAMS
     rmlui_blur             vs_rmlui_blur.sc      fs_rmlui_blur.sc
     rmlui_drop_shadow      vs_rmlui_composite.sc fs_rmlui_drop_shadow.sc
     rmlui_gradient         vs_rmlui.sc           fs_rmlui_gradient.sc
+    material_abi_time       vs_rmlui.sc           fs_rmlui_material_abi_time.sc
+    material_abi_dimensions vs_rmlui.sc           fs_rmlui_material_abi_dimensions.sc
+    material_abi_dpi        vs_rmlui.sc           fs_rmlui_material_abi_dpi.sc
+    material_abi_mouse      vs_rmlui.sc           fs_rmlui_material_abi_mouse.sc
+    material_abi_combined   vs_rmlui.sc           fs_rmlui_material_abi_combined.sc
 )
 
 function(rmlui_bgfx_default_shader_variants out_var)
