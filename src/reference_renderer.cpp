@@ -509,8 +509,7 @@ void BgfxReferenceRenderer::composite_layers(
 
     bool apply_composite_stencil = destination_layer->clip_mask_enabled;
     uint8_t composite_stencil_ref = destination_layer->stencil_ref;
-    if (!apply_composite_stencil && source_layer->clip_mask_enabled &&
-        !source_layer->clip_commands.empty()) {
+    if (source_layer->clip_mask_enabled && !source_layer->clip_commands.empty()) {
         replay_clip_commands(destination_layer->handle, source_layer->clip_commands);
         apply_composite_stencil = true;
         composite_stencil_ref = destination_layer->stencil_ref;
