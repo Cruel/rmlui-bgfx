@@ -17,6 +17,7 @@ if(NOT TARGET bgfx::bgfx)
 endif()
 
 if(RMLUI_BGFX_BUILD_SAMPLES)
+    find_package(RapidJSON CONFIG REQUIRED)
     set(RMLUI_BGFX_RMLUI_SOURCE_DIR "" CACHE PATH "Path to an upstream RmlUi source checkout used to build samples")
     if(NOT RMLUI_BGFX_RMLUI_SOURCE_DIR OR NOT EXISTS "${RMLUI_BGFX_RMLUI_SOURCE_DIR}/CMakeLists.txt")
         message(FATAL_ERROR "RMLUI_BGFX_BUILD_SAMPLES requires RMLUI_BGFX_RMLUI_SOURCE_DIR to point at an upstream RmlUi source checkout")

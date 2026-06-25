@@ -9,6 +9,7 @@ get_filename_component(RMLUI_BGFX_RMLUI_SOURCE_DIR "${RMLUI_BGFX_RMLUI_SOURCE_DI
 
 find_package(SDL3 CONFIG REQUIRED)
 find_package(SDL3_image CONFIG REQUIRED)
+find_package(RapidJSON CONFIG REQUIRED)
 find_package(Freetype REQUIRED)
 find_package(harfbuzz CONFIG REQUIRED)
 find_package(Lua REQUIRED)
