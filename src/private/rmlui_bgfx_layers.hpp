@@ -63,8 +63,11 @@ struct BgfxLayerSaveMaskContext {
     Rml::CompiledFilterHandle* filter_counter = nullptr;
     std::function<void(const char*)> fail_frame;
     std::function<bool(Rml::LayerHandle, std::optional<FbRect>)> materialize_layer;
+    std::function<Rml::Rectanglei()> current_save_bounds;
     std::function<bgfx::TextureHandle(bgfx::TextureHandle, Rml::Rectanglei, int, int, const char*, bool)>
         copy_region_to_texture;
+    std::function<RenderTargetRecord*(PostprocessTargetKind, const FbRect&)> ensure_target;
+    std::function<bool(const CompositeOp&)> composite;
 };
 
 class BgfxLayerSystem {

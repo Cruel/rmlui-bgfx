@@ -20,6 +20,7 @@ public:
     BgfxTargetCache& operator=(const BgfxTargetCache&) = delete;
 
     void set_perf_counters(PerfCounters* perf);
+    void begin_frame();
 
     [[nodiscard]] std::vector<LayerRecord>& layers() { return m_layers; }
     [[nodiscard]] const std::vector<LayerRecord>& layers() const { return m_layers; }

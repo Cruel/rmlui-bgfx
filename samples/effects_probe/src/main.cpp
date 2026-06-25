@@ -78,6 +78,15 @@ constexpr ProbeCase kCases[] = {
     {"02", "02_shader_dpi.rml", "u_rmluiMaterialParams0.w DPI/content scale"},
     {"03", "03_shader_mouse.rml", "u_rmluiMaterialParams1.xy mouse coordinates and validity"},
     {"04", "04_shader_combined.rml", "combined time, dimensions, DPI, and mouse standard uniforms"},
+    {"05", "05_scroll_root_filter.rml", "scrolling root with top effect stack"},
+    {"06", "06_scroll_only.rml", "nested scroller without transforms or filters"},
+    {"07", "07_scroll_transform_only.rml", "nested scroller with transforms only"},
+    {"08", "08_scroll_filter_only.rml", "nested scroller with filters only"},
+    {"09", "09_scroll_shadow_only.rml", "nested scroller with box shadows only"},
+    {"10", "10_scroll_transform_shadow.rml", "nested scroller with transform plus box-shadow"},
+    {"11", "11_scroll_transform_filter.rml", "nested scroller with transform plus filter"},
+    {"12", "12_scroll_transform_shadow_filter.rml", "nested scroller with transform plus box-shadow plus filter"},
+    {"13", "13_scroll_transform_shadow_filter_single.rml", "single transformed box-shadow element with outer filter"},
 };
 
 void print_cases(const char* executable)

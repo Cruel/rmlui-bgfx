@@ -1,0 +1,24 @@
+<rml>
+<head>
+<link type="text/rcss" href="common.rcss"/>
+<title>Scroll Probe 10</title>
+<style>
+body { overflow: auto; }
+.panel { margin: 30dp auto; width: 620dp; height: 360dp; overflow: auto; background: #a4b6b7; padding: 24dp; }
+.item { width: 320dp; height: 90dp; margin: 55dp auto; padding: 18dp; color: #111; background: #f5f7f8dd; border-radius: 28dp 8dp; }
+.rot { transform: rotateZ(15deg); }
+.shadow { box-shadow: #f00f 40px 30px 25px 0px, #00ff -40px -30px 45px 0px; }
+.spacer { height: 260dp; }
+</style>
+</head>
+<body>
+<h1>Scroll Probe 10 - transform plus box shadow</h1>
+<div class="panel">
+<div class="item rot shadow">rotated shadow A</div>
+<div class="item rot shadow">rotated shadow B</div>
+<div class="item rot shadow">rotated shadow C</div>
+<div class="item rot shadow">rotated shadow D</div>
+<div class="spacer"></div>
+</div>
+</body>
+</rml>

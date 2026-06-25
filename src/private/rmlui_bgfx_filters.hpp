@@ -24,6 +24,7 @@ struct BgfxFilterPipelineContext {
     PerfCounters& perf;
     RenderPath render_path = RenderPath::Reference;
     BlurSampleBoundsMode blur_sample_bounds_mode = BlurSampleBoundsMode::SourceBounds;
+    bool clamp_work_bounds_to_source = false;
     bool trace_filter_pipeline = false;
     std::function<bool()> ensure_fullscreen_geometry;
     std::function<void(const char*)> fail_frame;

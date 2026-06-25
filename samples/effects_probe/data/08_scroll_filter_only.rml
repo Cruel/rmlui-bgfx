@@ -1,0 +1,26 @@
+<rml>
+<head>
+<link type="text/rcss" href="common.rcss"/>
+<title>Scroll Probe 08</title>
+<style>
+body { overflow: auto; }
+.panel { margin: 30dp auto; width: 620dp; height: 360dp; overflow: auto; background: #a4b6b7; padding: 24dp; }
+.item { width: 320dp; height: 90dp; margin: 55dp auto; padding: 18dp; color: #111; background: #f5f7f8dd; border-radius: 28dp 8dp; }
+.blur { filter: blur(4px); }
+.opacity { filter: opacity(0.7); }
+.spacer { height: 260dp; }
+</style>
+</head>
+<body>
+<h1>Scroll Probe 08 - nested scroll plus filter only</h1>
+<div class="panel">
+<div class="item blur">blur A</div>
+<div class="item opacity">opacity B</div>
+<div class="item blur">blur C</div>
+<div class="item opacity">opacity D</div>
+<div class="item blur">blur E</div>
+<div class="item opacity">opacity F</div>
+<div class="spacer"></div>
+</div>
+</body>
+</rml>

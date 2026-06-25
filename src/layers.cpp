@@ -1,4 +1,5 @@
 #include "rmlui_bgfx_layers.hpp"
+#include "rmlui_bgfx_layer_composite_helpers.hpp"
 #include "rmlui_bgfx_layer_paths.hpp"
 
 #include <algorithm>
@@ -19,6 +20,9 @@ BgfxLayerSystem::BgfxLayerSystem(BgfxTargetCache& target_cache) : m_target_cache
 
 void BgfxLayerSystem::begin_frame()
 {
+    if (m_target_cache) {
+        m_target_cache->begin_frame();
+    }
     m_layer_stack.clear();
     m_layer_stack.push_back(0);
     m_active_layer = 0;
@@ -316,51 +320,62 @@ BgfxLayerSystem::save_layer_as_mask_image(const BgfxLayerSaveMaskContext& ctx)
         }
         return 0;
     }
-    if (!ctx.materialize_layer || !ctx.materialize_layer(m_active_layer, std::nullopt)) {
+    FbRect mask_global_bounds{0, 0, ctx.surface.framebuffer_width, ctx.surface.framebuffer_height};
+    if (ctx.current_save_bounds) {
+        const Rml::Rectanglei save_bounds = ctx.current_save_bounds();
+        mask_global_bounds = {save_bounds.Left(), save_bounds.Top(), save_bounds.Width(),
+                              save_bounds.Height()};
+    }
+    mask_global_bounds = clamp_to_surface(align_outward_for_render_target(mask_global_bounds),
+                                          ctx.surface);
+    if (is_empty(mask_global_bounds)) {
+        return 0;
+    }
+    if (!ctx.materialize_layer ||
+        !ctx.materialize_layer(m_active_layer, std::optional<FbRect>{mask_global_bounds})) {
         if (ctx.fail_frame) {
             ctx.fail_frame("SaveLayerAsMaskImage failed to materialize layer");
         }
         return 0;
     }
     LayerRecord* layer = materialized_layer_for_handle(m_active_layer, ctx.direct_base_requested);
-    if (!layer || !bgfx::isValid(layer->color) || !ctx.copy_region_to_texture || !ctx.textures ||
-        !ctx.filters || !ctx.texture_counter || !ctx.filter_counter) {
+    if (!layer || !bgfx::isValid(layer->color) || !ctx.filters || !ctx.filter_counter ||
+        !ctx.ensure_target || !ctx.composite) {
         return 0;
     }
 
-    FbRect mask_global_bounds = layer->bounds.framebuffer;
-    if (layer->has_valid_content_bounds) {
-        const FbRect valid = intersect(layer->valid_content_bounds, layer->bounds.framebuffer);
-        if (!is_empty(valid)) {
-            mask_global_bounds = valid;
+    RenderTargetRecord* blend_mask = ctx.ensure_target(PostprocessTargetKind::BlendMask,
+                                                       mask_global_bounds);
+    if (!blend_mask || !bgfx::isValid(blend_mask->framebuffer) ||
+        !bgfx::isValid(blend_mask->color)) {
+        if (ctx.fail_frame) {
+            ctx.fail_frame("SaveLayerAsMaskImage target allocation failed");
         }
-    }
-    const FbRect mask_local_bounds = local_rect_for_layer(mask_global_bounds, *layer);
-    if (is_empty(mask_local_bounds)) {
         return 0;
     }
 
-    bgfx::TextureHandle mask_texture = ctx.copy_region_to_texture(
-        layer->color, rectangle_from_fb(mask_local_bounds), layer->texture_width,
-        layer->texture_height, "RmlUi.SaveLayerAsMaskImage", false);
-    if (!bgfx::isValid(mask_texture)) {
+    TextureRegion source = make_layer_texture_region(layer->color, layer->bounds.framebuffer,
+                                                     full_local_rect(*layer), layer->texture_width,
+                                                     layer->texture_height);
+    source = subregion(source, mask_global_bounds);
+    if (is_empty(source.global_bounds) || is_empty(source.local_rect)) {
+        return 0;
+    }
+
+    if (!ctx.composite(make_layer_composite_op(
+            source, blend_mask->framebuffer, Rml::BlendMode::Replace, ScissorState{false, {}},
+            false, 1, RmlUiPassKind::Copy, RmlUiPassReason::FilterMaskImage,
+            "RmlUi.SaveLayerAsMaskImage",
+            LocalFbRect{0, 0, blend_mask->texture_width, blend_mask->texture_height}))) {
         if (ctx.fail_frame) {
             ctx.fail_frame("SaveLayerAsMaskImage failed to copy layer contents");
         }
         return 0;
     }
 
-    const Rml::TextureHandle texture = ++(*ctx.texture_counter);
-    ctx.textures->emplace(
-        texture, TextureRecord{mask_texture,
-                               {mask_local_bounds.w, mask_local_bounds.h},
-                               RenderBounds{framebuffer_to_logical(mask_global_bounds, ctx.surface),
-                                            mask_global_bounds},
-                               TextureOwnership::SavedLayer});
-
     FilterRecord filter;
     filter.kind = FilterKind::MaskImage;
-    filter.resource = texture;
+    filter.resource = 0;
     filter.mask_bounds = {mask_global_bounds.x, mask_global_bounds.y, mask_global_bounds.w,
                           mask_global_bounds.h};
     const Rml::CompiledFilterHandle handle = ++(*ctx.filter_counter);

@@ -1,5 +1,5 @@
 body {
-    font-family: LatoLatin, sans-serif;
+    font-family: LatoLatin;
     font-size: 18dp;
     color: #eceff8;
     background: #11151d;

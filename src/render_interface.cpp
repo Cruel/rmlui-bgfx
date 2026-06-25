@@ -1031,11 +1031,16 @@ struct RenderInterface::Impl {
             [this](Rml::LayerHandle handle, std::optional<FbRect> required_bounds) {
                 return materialize_layer(handle, required_bounds);
             },
+            [this]() { return current_save_bounds(); },
             [this](bgfx::TextureHandle source, Rml::Rectanglei region, int source_width,
                    int source_height, const char* name, bool flip_y) {
                 return copy_region_to_texture(source, region, source_width, source_height, name,
                                               flip_y);
-            }};
+            },
+            [this](PostprocessTargetKind kind, const FbRect& bounds) {
+                return ensure_postprocess_target(kind, bounds);
+            },
+            [this](const CompositeOp& op) { return composite(op); }};
     }
 
     bool begin_base_layer()
@@ -1261,6 +1266,7 @@ struct RenderInterface::Impl {
                                          perf,
                                          render_path,
                                          blur_sample_bounds_mode,
+                                         false,
                                          trace_filter_pipeline,
                                          [this]() { return ensure_fullscreen_geometry(); },
                                          [this](const char* message) { fail_frame(message); }};
@@ -1557,8 +1563,9 @@ struct RenderInterface::Impl {
         const FbRect work_bounds = clip_work_bounds(layer, scissor);
         if (is_empty(work_bounds))
             return;
-        auto pass = pass_builder.geometry(layer->framebuffer, work_bounds.w, work_bounds.h,
-                                          "RmlUi.ClipMask", RmlUiPassReason::ClipMask);
+        auto pass = pass_builder.geometry(layer->framebuffer, layer->texture_width,
+                                          layer->texture_height, "RmlUi.ClipMask",
+                                          RmlUiPassReason::ClipMask);
         if (!pass)
             return;
         perf.add_clip_mask(uint64_t(work_bounds.w) * uint64_t(work_bounds.h));
@@ -1933,6 +1940,15 @@ void RenderInterface::end_frame()
             m_impl->layer_system.begin_frame();
         }
         if (!m_impl->direct_base_requested) {
+            auto clear_pass = m_impl->pass_builder.base_clear(BGFX_INVALID_HANDLE, m_impl->width,
+                                                              m_impl->height);
+            if (clear_pass) {
+                m_impl->perf.add_clear(uint64_t(m_impl->width) * uint64_t(m_impl->height), true);
+                bgfx::touch(clear_pass->view);
+            } else {
+                m_impl->fail_frame("end_frame backbuffer clear failed");
+                return;
+            }
             if (LayerRecord* base = m_impl->layer_for_handle(0)) {
                 if (!m_impl->composite(make_composite_op(
                         texture_region(base->color, base->bounds.framebuffer, full_local_rect(*base),
@@ -2209,7 +2225,8 @@ void RenderInterface::RenderToClipMask(Rml::ClipMaskOperation operation,
         m_impl->reference_renderer.render_to_clip_mask(operation, geometry, translation);
         return;
     }
-    if (m_impl->geometries.find(geometry) == m_impl->geometries.end())
+    auto geometry_it = m_impl->geometries.find(geometry);
+    if (geometry_it == m_impl->geometries.end() || geometry_it->second.index_count == 0)
         return;
     LayerRecord* layer = m_impl->current_layer();
     if (!layer)

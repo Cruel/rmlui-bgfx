@@ -26,6 +26,15 @@ BgfxTargetCache::~BgfxTargetCache()
 
 void BgfxTargetCache::set_perf_counters(PerfCounters* perf) { m_perf = perf; }
 
+void BgfxTargetCache::begin_frame()
+{
+    // Postprocess targets are cheap scratch resources compared to the correctness hazards of
+    // retaining an unbounded set of differently sized bounded targets while scrolling through
+    // effect-heavy documents. Keep layer targets cached by slot, but reset postprocess scratch
+    // targets each frame until this is replaced by a bounded LRU/per-frame pool.
+    destroy_postprocess_targets();
+}
+
 LayerRecord& BgfxTargetCache::prepare_virtual_layer_slot(uint32_t slot)
 {
     if (slot >= m_layers.size()) {

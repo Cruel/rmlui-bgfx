@@ -1,0 +1,33 @@
+<rml>
+<head>
+<link type="text/rcss" href="common.rcss"/>
+<title>Scroll Probe 05</title>
+<style>
+body { overflow: auto; padding-top: 78dp; background: #a4b6b7; }
+.header { position: fixed; left: 0; right: 0; top: 0; height: 72dp; background: #619158; padding: 20dp 40dp; font-size: 24dp; z-index: 5; }
+.content { margin: 0 auto; width: 760dp; height: 1450dp; }
+.group { margin-top: 70dp; filter: opacity(1) blur(0px); }
+.card { width: 280dp; height: 70dp; margin: 18dp auto; padding: 14dp; border-radius: 30dp 8dp; background: #fff8; border-width: 2dp; border-color: #def6f7; color: #111; }
+.shadow_blur { box-shadow: #f00f 40px 30px 25px 0px, #00ff -40px -30px 45px 0px, #333a 0px 0px 30px 15px inset; transform: rotate3d(0.2, 0.4, 0.1, 15deg); margin-top: 110dp; margin-bottom: 110dp; }
+.trail { box-shadow: #f66 30dp 30dp 0 0, #c88 60dp 60dp 0 0, #baa 90dp 90dp 0 0, #ffac 0 0 .8em 8dp inset; margin-bottom: 120dp; filter: opacity(1); }
+.inset { box-shadow: #f4fd 10px 5px 5px 3px inset; }
+</style>
+</head>
+<body>
+<div class="header">Scroll Probe 05 - full-sample top stack</div>
+<div class="content">
+<p>Scroll this document. Cards should not pop in or out, jump, or clamp to stale positions.</p>
+<div class="group">
+<div class="card shadow_blur">rotated box-shadow blur</div>
+<div class="card trail">trail shadow with opacity filter</div>
+<div class="card inset">inset shadow</div>
+<div class="card">plain card</div>
+<div class="card">plain card below</div>
+<div class="card">plain card lower</div>
+<div class="card shadow_blur">second rotated shadow</div>
+<div class="card trail">second trail shadow</div>
+<div class="card inset">second inset shadow</div>
+</div>
+</div>
+</body>
+</rml>

@@ -162,7 +162,7 @@ bool BgfxDrawContext::submit_composite(const RmlUiPass& pass, const BgfxDrawReso
                                     op.scissor.region.Width(), op.scissor.region.Height()};
         const FbRect clipped_scissor = intersect(target_scissor, destination_rect);
         if (is_empty(clipped_scissor)) {
-            return false;
+            return true;
         }
         bgfx::setScissor(uint16_t(clipped_scissor.x), uint16_t(clipped_scissor.y),
                          uint16_t(clipped_scissor.w), uint16_t(clipped_scissor.h));

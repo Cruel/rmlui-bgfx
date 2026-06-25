@@ -148,6 +148,68 @@ void trace_filter_chain(const BgfxFilterPipelineContext& ctx,
     return bounds;
 }
 
+[[nodiscard]] bool filter_chain_has_drop_shadow(const std::vector<FilterRecord>& filters)
+{
+    return std::any_of(filters.begin(), filters.end(), [](const FilterRecord& filter) {
+        return filter.kind == FilterKind::DropShadow;
+    });
+}
+
+[[nodiscard]] RenderTargetRecord* target_for_texture(bgfx::TextureHandle texture,
+                                                     std::array<RenderTargetRecord*, 3> targets)
+{
+    if (!bgfx::isValid(texture)) {
+        return nullptr;
+    }
+    for (RenderTargetRecord* target : targets) {
+        if (target && bgfx::isValid(target->color) && target->color.idx == texture.idx) {
+            return target;
+        }
+    }
+    return nullptr;
+}
+
+[[nodiscard]] bgfx::TextureHandle resolve_mask_texture(const BgfxFilterPipelineContext& ctx,
+                                                       const FilterRecord& filter)
+{
+    if (filter.resource != 0) {
+        auto tex_it = ctx.textures.find(Rml::TextureHandle(filter.resource));
+        if (tex_it != ctx.textures.end()) {
+            return tex_it->second.handle;
+        }
+        return BGFX_INVALID_HANDLE;
+    }
+
+    const FbRect mask_bounds =
+        clamp_to_surface(align_outward_for_render_target(FbRect{filter.mask_bounds[0],
+                                                                filter.mask_bounds[1],
+                                                                filter.mask_bounds[2],
+                                                                filter.mask_bounds[3]}),
+                         ctx.surface);
+    if (is_empty(mask_bounds)) {
+        return BGFX_INVALID_HANDLE;
+    }
+    RenderTargetRecord* blend_mask = ctx.target_cache.acquire_postprocess_target(
+        PostprocessTargetKind::BlendMask, mask_bounds, ctx.surface);
+    if (blend_mask) {
+        return blend_mask->color;
+    }
+    return BGFX_INVALID_HANDLE;
+}
+
+[[nodiscard]] std::array<float, 4> mask_uv_transform(FbRect destination_bounds,
+                                                     FbRect mask_bounds)
+{
+    auto transform = compute_mask_uv_transform(destination_bounds, mask_bounds);
+    if (bgfx::getCaps() && bgfx::getCaps()->originBottomLeft) {
+        const float inv_mask_h = 1.0f / float(std::max(mask_bounds.h, 1));
+        transform[1] = float(destination_bounds.h) * inv_mask_h;
+        const float destination_bottom = float(destination_bounds.y + destination_bounds.h);
+        transform[3] = 1.0f - (destination_bottom - float(mask_bounds.y)) * inv_mask_h;
+    }
+    return transform;
+}
+
 struct BlurShaderParameters {
     float texel_scale = 1.0f;
     float sigma = 0.0f;
@@ -371,8 +433,11 @@ BgfxFilterPipeline::apply_common(const BgfxFilterPipelineContext& ctx, TextureRe
 
     const FilterExpansion total_expansion = expansion_for(ctx, filter_handles);
     const FbRect expanded = expand_bounds(source_valid_global_bounds, total_expansion);
-    const FbRect clamped_work_bounds =
+    FbRect clamped_work_bounds =
         clamp_to_surface(align_outward_for_render_target(expanded), ctx.surface);
+    if (ctx.clamp_work_bounds_to_source) {
+        clamped_work_bounds = intersect(clamped_work_bounds, source_bounds.framebuffer);
+    }
     if (ctx.trace_filter_pipeline) {
         trace_rect("expanded", expanded);
         trace_rect("work", clamped_work_bounds);
@@ -385,7 +450,13 @@ BgfxFilterPipeline::apply_common(const BgfxFilterPipelineContext& ctx, TextureRe
         PostprocessTargetKind::Primary, clamped_work_bounds, ctx.surface);
     RenderTargetRecord* secondary = ctx.target_cache.acquire_postprocess_target(
         PostprocessTargetKind::Secondary, clamped_work_bounds, ctx.surface);
-    if (!primary || !secondary) {
+    const bool needs_tertiary = filter_chain_has_drop_shadow(filter_chain);
+    RenderTargetRecord* tertiary = needs_tertiary
+                                      ? ctx.target_cache.acquire_postprocess_target(
+                                            PostprocessTargetKind::Tertiary, clamped_work_bounds,
+                                            ctx.surface)
+                                      : nullptr;
+    if (!primary || !secondary || (needs_tertiary && !tertiary)) {
         return {};
     }
     if (ctx.trace_filter_pipeline) {
@@ -403,8 +474,8 @@ BgfxFilterPipeline::apply_common(const BgfxFilterPipelineContext& ctx, TextureRe
     }
 
     if (filter_chain.size() == 1 && filter_chain[0].kind == FilterKind::MaskImage) {
-        auto tex_it = ctx.textures.find(Rml::TextureHandle(filter_chain[0].resource));
-        if (tex_it == ctx.textures.end()) {
+        const bgfx::TextureHandle mask_texture = resolve_mask_texture(ctx, filter_chain[0]);
+        if (!bgfx::isValid(mask_texture)) {
             return {};
         }
         RenderTargetRecord* destination = safe_destination(ctx, source.texture, primary, secondary);
@@ -421,16 +492,12 @@ BgfxFilterPipeline::apply_common(const BgfxFilterPipelineContext& ctx, TextureRe
         ctx.perf.add_mask(uint64_t(destination->texture_width) *
                               uint64_t(destination->texture_height),
                           is_full_mask);
-        if (texture_attached_to_framebuffer(ctx, tex_it->second.handle, destination->framebuffer)) {
+        if (texture_attached_to_framebuffer(ctx, mask_texture, destination->framebuffer)) {
             return {};
         }
         const FbRect mask_bounds{filter_chain[0].mask_bounds[0], filter_chain[0].mask_bounds[1],
                                  filter_chain[0].mask_bounds[2], filter_chain[0].mask_bounds[3]};
-        auto mask_transform = compute_mask_uv_transform(destination->bounds, mask_bounds);
-        if (bgfx::getCaps() && bgfx::getCaps()->originBottomLeft) {
-            mask_transform[1] = -mask_transform[1];
-            mask_transform[3] += float(destination->bounds.h) / float(std::max(mask_bounds.h, 1));
-        }
+        const auto mask_transform = mask_uv_transform(destination->bounds, mask_bounds);
         const FbRect source_sample_local{
             source.local_rect.x + destination->bounds.x - source.global_bounds.x,
             source.local_rect.y + destination->bounds.y - source.global_bounds.y,
@@ -439,8 +506,8 @@ BgfxFilterPipeline::apply_common(const BgfxFilterPipelineContext& ctx, TextureRe
         };
         const auto source_uv = uv_rect_for_source_region(source_sample_local, source.texture_width,
                                                          source.texture_height);
-        if (!ctx.draw_context.submit_mask_image(*pass, ctx.resources, source.texture,
-                                                tex_it->second.handle, mask_transform, source_uv)) {
+        if (!ctx.draw_context.submit_mask_image(*pass, ctx.resources, source.texture, mask_texture,
+                                                mask_transform, source_uv)) {
             return {};
         }
         result.output = texture_region(
@@ -510,11 +577,9 @@ BgfxFilterPipeline::apply_common(const BgfxFilterPipelineContext& ctx, TextureRe
             current_valid_rect = {0, 0, destination->texture_width, destination->texture_height};
             break;
         case FilterKind::MaskImage: {
-            auto tex_it = ctx.textures.find(Rml::TextureHandle(filter.resource));
-            if (tex_it == ctx.textures.end()) {
-                return {};
-            }
-            if (!ctx.ensure_fullscreen_geometry || !ctx.ensure_fullscreen_geometry() ||
+            const bgfx::TextureHandle mask_texture = resolve_mask_texture(ctx, filter);
+            if (!bgfx::isValid(mask_texture) || !ctx.ensure_fullscreen_geometry ||
+                !ctx.ensure_fullscreen_geometry() ||
                 !bgfx::isValid(ctx.resources.mask_multiply_program)) {
                 return {};
             }
@@ -528,8 +593,7 @@ BgfxFilterPipeline::apply_common(const BgfxFilterPipelineContext& ctx, TextureRe
             ctx.perf.add_mask(uint64_t(destination->texture_width) *
                                   uint64_t(destination->texture_height),
                               is_full_mask);
-            if (texture_attached_to_framebuffer(ctx, tex_it->second.handle,
-                                                destination->framebuffer)) {
+            if (texture_attached_to_framebuffer(ctx, mask_texture, destination->framebuffer)) {
                 if (ctx.fail_frame) {
                     ctx.fail_frame("mask-image filter feedback loop");
                 }
@@ -537,14 +601,9 @@ BgfxFilterPipeline::apply_common(const BgfxFilterPipelineContext& ctx, TextureRe
             }
             const FbRect mask_bounds{filter.mask_bounds[0], filter.mask_bounds[1],
                                      filter.mask_bounds[2], filter.mask_bounds[3]};
-            auto mask_transform = compute_mask_uv_transform(destination->bounds, mask_bounds);
-            if (bgfx::getCaps() && bgfx::getCaps()->originBottomLeft) {
-                mask_transform[1] = -mask_transform[1];
-                mask_transform[3] +=
-                    float(destination->bounds.h) / float(std::max(mask_bounds.h, 1));
-            }
-            ok = ctx.draw_context.submit_mask_image(*pass, ctx.resources, current,
-                                                    tex_it->second.handle, mask_transform);
+            const auto mask_transform = mask_uv_transform(destination->bounds, mask_bounds);
+            ok = ctx.draw_context.submit_mask_image(*pass, ctx.resources, current, mask_texture,
+                                                    mask_transform);
             current_valid_rect = {0, 0, destination->texture_width, destination->texture_height};
             break;
         }
@@ -599,77 +658,104 @@ BgfxFilterPipeline::apply_common(const BgfxFilterPipelineContext& ctx, TextureRe
             break;
         }
         case FilterKind::DropShadow: {
-            const bgfx::TextureHandle original = current;
+            if (!tertiary) {
+                return {};
+            }
+            RenderTargetRecord* original =
+                target_for_texture(current, std::array<RenderTargetRecord*, 3>{primary, secondary,
+                                                                               tertiary});
+            if (!original) {
+                return {};
+            }
+            std::array<RenderTargetRecord*, 2> scratch{};
+            size_t scratch_count = 0;
+            for (RenderTargetRecord* target : {primary, secondary, tertiary}) {
+                if (target != original) {
+                    scratch[scratch_count++] = target;
+                }
+            }
+            if (scratch_count != scratch.size()) {
+                return {};
+            }
+            RenderTargetRecord* shadow = scratch[0];
+            RenderTargetRecord* final = scratch[1];
+
             const float color[4] = {filter.color[0], filter.color[1], filter.color[2],
                                     filter.color[3]};
-            const float offset[4] = {
-                filter.offset[0] / float(std::max(destination->texture_width, 1)),
-                filter.offset[1] / float(std::max(destination->texture_height, 1)), 0.0f, 0.0f};
+            const float offset[4] = {filter.offset[0] / float(std::max(shadow->texture_width, 1)),
+                                     -filter.offset[1] /
+                                         float(std::max(shadow->texture_height, 1)),
+                                     0.0f, 0.0f};
             if (!fullscreen_filter_pass(
-                    ctx, current, *destination, "RmlUi.FilterDropShadowExtract",
+                    ctx, original->color, *shadow, "RmlUi.FilterDropShadowExtract",
                     [&](const RmlUiPass& pass) {
-                        return ctx.draw_context.submit_drop_shadow(pass, ctx.resources, current,
-                                                                   color, offset);
+                        return ctx.draw_context.submit_drop_shadow(pass, ctx.resources,
+                                                                   original->color, color, offset);
                     },
                     RmlUiPassReason::FilterDropShadow)) {
                 return {};
             }
             ctx.perf.add_dropshadow();
-            current = destination->color;
-            destination = (destination == primary) ? secondary : primary;
             if (filter.sigma >= 0.5f) {
                 const BlurShaderParameters blur = blur_shader_parameters(filter.sigma);
-                const auto bounds = filter_uv_bounds(current_valid_rect, primary->texture_width,
-                                                      primary->texture_height);
+                const std::array<float, 4> bounds{0.0f, 0.0f, 1.0f, 1.0f};
                 float params[4] = {0.0f,
-                                   blur.texel_scale / float(std::max(destination->texture_height, 1)),
+                                   blur.texel_scale / float(std::max(final->texture_height, 1)),
                                    blur.sigma, blur.texel_scale};
                 if (!fullscreen_filter_pass(
-                        ctx, current, *destination, "RmlUi.FilterDropShadowBlurV",
+                        ctx, shadow->color, *final, "RmlUi.FilterDropShadowBlurV",
                         [&](const RmlUiPass& pass) {
-                            return ctx.draw_context.submit_blur(pass, ctx.resources, current,
+                            return ctx.draw_context.submit_blur(pass, ctx.resources, shadow->color,
                                                                 params, blur.weights, bounds.data());
                         },
                         RmlUiPassReason::FilterBlur)) {
                     return {};
                 }
                 ctx.perf.add_blur();
-                current = destination->color;
-                destination = (destination == primary) ? secondary : primary;
-                params[0] = blur.texel_scale / float(std::max(destination->texture_width, 1));
+                std::swap(shadow, final);
+                params[0] = blur.texel_scale / float(std::max(final->texture_width, 1));
                 params[1] = 0.0f;
                 if (!fullscreen_filter_pass(
-                        ctx, current, *destination, "RmlUi.FilterDropShadowBlurH",
+                        ctx, shadow->color, *final, "RmlUi.FilterDropShadowBlurH",
                         [&](const RmlUiPass& pass) {
-                            return ctx.draw_context.submit_blur(pass, ctx.resources, current,
+                            return ctx.draw_context.submit_blur(pass, ctx.resources, shadow->color,
                                                                 params, blur.weights, bounds.data());
                         },
                         RmlUiPassReason::FilterBlur)) {
                     return {};
                 }
                 ctx.perf.add_blur();
-                current = destination->color;
-                destination = (destination == primary) ? secondary : primary;
+                std::swap(shadow, final);
             }
-            current_valid_rect = {0, 0, destination->texture_width, destination->texture_height};
-            destination = safe_destination(ctx, original, destination,
-                                           (destination == primary) ? secondary : primary);
             if (!composite(ctx, make_composite_op(
-                                    texture_region(original, destination->bounds,
-                                                   LocalFbRect{0, 0, destination->texture_width,
-                                                               destination->texture_height},
-                                                   destination->texture_width,
-                                                   destination->texture_height),
-                                    destination->framebuffer, Rml::BlendMode::Blend,
+                                    texture_region(shadow->color, shadow->bounds,
+                                                   LocalFbRect{0, 0, shadow->texture_width,
+                                                               shadow->texture_height},
+                                                   shadow->texture_width, shadow->texture_height),
+                                    final->framebuffer, Rml::BlendMode::Replace,
+                                    ScissorState{false, {}}, false, 1, RmlUiPassKind::Postprocess,
+                                    RmlUiPassReason::FilterDropShadowComposite,
+                                    "RmlUi.FilterDropShadowCopy",
+                                    LocalFbRect{0, 0, final->texture_width,
+                                                final->texture_height}))) {
+                return {};
+            }
+            if (!composite(ctx, make_composite_op(
+                                    texture_region(original->color, original->bounds,
+                                                   LocalFbRect{0, 0, original->texture_width,
+                                                               original->texture_height},
+                                                   original->texture_width, original->texture_height),
+                                    final->framebuffer, Rml::BlendMode::Blend,
                                     ScissorState{false, {}}, false, 1, RmlUiPassKind::Postprocess,
                                     RmlUiPassReason::FilterDropShadowComposite,
                                     "RmlUi.FilterDropShadowComposite",
-                                    LocalFbRect{0, 0, destination->texture_width,
-                                                destination->texture_height}))) {
+                                    LocalFbRect{0, 0, final->texture_width,
+                                                final->texture_height}))) {
                 return {};
             }
+            destination = final;
             ok = true;
-            current_valid_rect = {0, 0, destination->texture_width, destination->texture_height};
+            current_valid_rect = {0, 0, final->texture_width, final->texture_height};
             break;
         }
         case FilterKind::Invalid:

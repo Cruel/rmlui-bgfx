@@ -8,7 +8,7 @@
 
 using namespace rmlui_bgfx;
 
-TEST_CASE("RmlUi saved mask image uses valid content bounds")
+TEST_CASE("RmlUi saved mask image uses bounded blend mask target")
 {
     BgfxTargetCache target_cache;
     BgfxLayerSystem layer_system(target_cache);
@@ -17,11 +17,11 @@ TEST_CASE("RmlUi saved mask image uses valid content bounds")
     LayerRecord& layer = target_cache.prepare_virtual_layer_slot(1);
     layer.framebuffer = bgfx::FrameBufferHandle{3};
     layer.color = bgfx::TextureHandle{4};
-    layer.bounds = RenderBounds{{10.0f, 20.0f, 100.0f, 100.0f}, {10, 20, 100, 100}};
+    layer.bounds = RenderBounds{{0.0f, 0.0f, 200.0f, 200.0f}, {0, 0, 200, 200}};
     layer.valid_content_bounds = {30, 40, 20, 15};
     layer.has_valid_content_bounds = true;
-    layer.texture_width = 100;
-    layer.texture_height = 100;
+    layer.texture_width = 200;
+    layer.texture_height = 200;
     layer.kind = LayerKind::VirtualChild;
     layer.materialized = true;
 
@@ -31,10 +31,18 @@ TEST_CASE("RmlUi saved mask image uses valid content bounds")
     std::unordered_map<Rml::CompiledFilterHandle, FilterRecord> filters;
     Rml::TextureHandle texture_counter = 7;
     Rml::CompiledFilterHandle filter_counter = 11;
-    Rml::Rectanglei copied_region = Rml::Rectanglei::FromPositionSize({0, 0}, {0, 0});
-    int copied_source_width = 0;
-    int copied_source_height = 0;
-    const char* copy_name = nullptr;
+    std::optional<FbRect> materialize_required_bounds;
+    PostprocessTargetKind requested_target_kind = PostprocessTargetKind::Primary;
+    FbRect requested_target_bounds{};
+    RenderTargetRecord blend_mask;
+    blend_mask.framebuffer = bgfx::FrameBufferHandle{5};
+    blend_mask.color = bgfx::TextureHandle{6};
+    blend_mask.bounds = {30, 40, 20, 15};
+    blend_mask.texture_width = 20;
+    blend_mask.texture_height = 15;
+    blend_mask.kind = PostprocessTargetKind::BlendMask;
+    bool composite_called = false;
+    CompositeOp composite_op;
 
     BgfxLayerSaveMaskContext ctx;
     ctx.surface = SurfaceMetrics{200, 200, 200, 200, 1.0f, 1.0f};
@@ -42,42 +50,53 @@ TEST_CASE("RmlUi saved mask image uses valid content bounds")
     ctx.filters = &filters;
     ctx.texture_counter = &texture_counter;
     ctx.filter_counter = &filter_counter;
-    ctx.materialize_layer = [](Rml::LayerHandle, std::optional<FbRect>) { return true; };
-    ctx.copy_region_to_texture = [&](bgfx::TextureHandle, Rml::Rectanglei region, int source_width,
-                                     int source_height, const char* name, bool flip_y) {
-        copied_region = region;
-        copied_source_width = source_width;
-        copied_source_height = source_height;
-        copy_name = name;
-        CHECK_FALSE(flip_y);
-        return bgfx::TextureHandle{9};
+    ctx.materialize_layer = [&](Rml::LayerHandle, std::optional<FbRect> required_bounds) {
+        materialize_required_bounds = required_bounds;
+        return true;
+    };
+    ctx.current_save_bounds = [] {
+        return Rml::Rectanglei::FromPositionSize({30, 40}, {20, 15});
+    };
+    ctx.copy_region_to_texture = [](bgfx::TextureHandle, Rml::Rectanglei, int, int, const char*,
+                                    bool) { return bgfx::TextureHandle{9}; };
+    ctx.ensure_target = [&](PostprocessTargetKind kind, const FbRect& bounds) {
+        requested_target_kind = kind;
+        requested_target_bounds = bounds;
+        return &blend_mask;
+    };
+    ctx.composite = [&](const CompositeOp& op) {
+        composite_called = true;
+        composite_op = op;
+        return true;
     };
 
     const Rml::CompiledFilterHandle filter = layer_system.save_layer_as_mask_image(ctx);
 
     CHECK(filter == 12);
     REQUIRE(filters.contains(filter));
-    REQUIRE(textures.contains(8));
-    CHECK(copied_region.Left() == 20);
-    CHECK(copied_region.Top() == 20);
-    CHECK(copied_region.Width() == 20);
-    CHECK(copied_region.Height() == 15);
-    CHECK(copied_source_width == 100);
-    CHECK(copied_source_height == 100);
-    REQUIRE(copy_name != nullptr);
-    CHECK(std::string_view(copy_name) == "RmlUi.SaveLayerAsMaskImage");
-
-    const TextureRecord& texture = textures.at(8);
-    CHECK(texture.dimensions.x == 20);
-    CHECK(texture.dimensions.y == 15);
-    CHECK(texture.bounds.framebuffer.x == 30);
-    CHECK(texture.bounds.framebuffer.y == 40);
-    CHECK(texture.bounds.framebuffer.w == 20);
-    CHECK(texture.bounds.framebuffer.h == 15);
+    CHECK(textures.empty());
+    REQUIRE(materialize_required_bounds.has_value());
+    CHECK(materialize_required_bounds->x == 30);
+    CHECK(materialize_required_bounds->y == 40);
+    CHECK(materialize_required_bounds->w == 20);
+    CHECK(materialize_required_bounds->h == 15);
+    CHECK(requested_target_kind == PostprocessTargetKind::BlendMask);
+    CHECK(requested_target_bounds.x == 30);
+    CHECK(requested_target_bounds.y == 40);
+    CHECK(requested_target_bounds.w == 20);
+    CHECK(requested_target_bounds.h == 15);
+    CHECK(composite_called);
+    CHECK(composite_op.source.texture.idx == 4);
+    CHECK(composite_op.destination.idx == 5);
+    CHECK(composite_op.destination_rect.x == 0);
+    CHECK(composite_op.destination_rect.y == 0);
+    CHECK(composite_op.destination_rect.w == 20);
+    CHECK(composite_op.destination_rect.h == 15);
+    CHECK(composite_op.blend_mode == Rml::BlendMode::Replace);
 
     const FilterRecord& record = filters.at(filter);
     CHECK(record.kind == FilterKind::MaskImage);
-    CHECK(record.resource == 8);
+    CHECK(record.resource == 0);
     CHECK(record.mask_bounds[0] == 30);
     CHECK(record.mask_bounds[1] == 40);
     CHECK(record.mask_bounds[2] == 20);
