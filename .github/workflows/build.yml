@@ -21,10 +21,10 @@ jobs:
 
     steps:
       - name: Checkout rmlui-bgfx
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Checkout RmlUi samples source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: mikke89/RmlUi
           path: external/RmlUi
@@ -63,7 +63,7 @@ jobs:
             zip
 
       - name: Restore vcpkg binary cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: .vcpkg-cache
           key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
