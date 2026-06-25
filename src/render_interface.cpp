@@ -2029,12 +2029,16 @@ void RenderInterface::end_frame()
 Rml::CompiledGeometryHandle RenderInterface::CompileGeometry(Rml::Span<const Rml::Vertex> vertices,
                                                              Rml::Span<const int> indices)
 {
-    if (vertices.empty() || indices.empty() ||
-        vertices.size() > std::numeric_limits<uint32_t>::max() ||
+    if (vertices.size() > std::numeric_limits<uint32_t>::max() ||
         indices.size() > std::numeric_limits<uint32_t>::max()) {
         return 0;
     }
     const GeometryBoundsResult local_bounds = compute_indexed_geometry_bounds(vertices, indices);
+    if (local_bounds.status == GeometryBoundsStatus::EmptyGeometry) {
+        const Rml::CompiledGeometryHandle handle = ++m_impl->geometry_counter;
+        m_impl->geometries.emplace(handle, GeometryRecord{});
+        return handle;
+    }
     if (local_bounds.status != GeometryBoundsStatus::Valid) {
         return 0;
     }

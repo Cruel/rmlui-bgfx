@@ -199,6 +199,19 @@ void BgfxReferenceRenderer::end_frame()
         fail_frame("reference renderer missing root layer at frame end");
         return;
     }
+    if (auto clear_pass = m_ctx.pass_builder->base_clear(BGFX_INVALID_HANDLE,
+                                                         m_surface.framebuffer_width,
+                                                         m_surface.framebuffer_height)) {
+        bgfx::touch(clear_pass->view);
+        if (m_ctx.perf) {
+            m_ctx.perf->add_clear(uint64_t(m_surface.framebuffer_width) *
+                                      uint64_t(m_surface.framebuffer_height),
+                                  true);
+        }
+    } else {
+        fail_frame("reference renderer backbuffer clear failed");
+        return;
+    }
     if (!submit_composite(layer_region(*root), BGFX_INVALID_HANDLE, Rml::BlendMode::Blend,
                           ScissorState{false, {}}, false, 1, RmlUiPassKind::FinalComposite,
                           RmlUiPassReason::FinalComposite, "RmlUi.ReferenceFinalComposite",
@@ -236,7 +249,7 @@ void BgfxReferenceRenderer::render_geometry(Rml::CompiledGeometryHandle geometry
         return;
     }
     auto geometry_it = m_ctx.geometries->find(geometry);
-    if (geometry_it == m_ctx.geometries->end()) {
+    if (geometry_it == m_ctx.geometries->end() || geometry_it->second.index_count == 0) {
         return;
     }
     ReferenceLayer* layer = active_layer();
@@ -284,7 +297,8 @@ void BgfxReferenceRenderer::render_shader(Rml::CompiledShaderHandle shader,
     }
     auto shader_it = m_ctx.shaders->find(shader);
     auto geometry_it = m_ctx.geometries->find(geometry);
-    if (shader_it == m_ctx.shaders->end() || geometry_it == m_ctx.geometries->end()) {
+    if (shader_it == m_ctx.shaders->end() || geometry_it == m_ctx.geometries->end() ||
+        geometry_it->second.index_count == 0) {
         return;
     }
     ReferenceLayer* layer = active_layer();

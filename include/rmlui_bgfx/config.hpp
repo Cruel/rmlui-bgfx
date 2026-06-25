@@ -194,7 +194,7 @@ struct RendererConfig {
     RenderPath render_path = RenderPath::Reference;
     BlurSampleBoundsMode blur_sample_bounds_mode = BlurSampleBoundsMode::SourceBounds;
     uint8_t reference_msaa_samples = 2;
-    bool trace_filter_pipeline = true;
+    bool trace_filter_pipeline = false;
 };
 
 } // namespace rmlui_bgfx

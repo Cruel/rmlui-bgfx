@@ -100,7 +100,9 @@ namespace {
 [[nodiscard]] bool trace_filter_pipeline_from_env()
 {
     const char* value = std::getenv("RMLUI_BGFX_FILTER_TRACE");
-    return !value || value[0] == '\0' || value[0] != '0';
+    return value && (value[0] == '1' || value[0] == 't' || value[0] == 'T' ||
+                     value[0] == 'y' || value[0] == 'Y' || value[0] == 'o' ||
+                     value[0] == 'O');
 }
 
 [[nodiscard]] uint8_t reference_msaa_samples_from_env()
