@@ -166,6 +166,7 @@ void BgfxReferenceRenderer::begin_frame(const SurfaceMetrics& surface,
     root.handle = Rml::LayerHandle(0);
     root.clip_mask_enabled = false;
     root.stencil_ref = 1;
+    root.clip_commands.clear();
     if (!ensure_layer_target(root)) {
         fail_frame("reference renderer failed to create root layer target");
         return;
@@ -442,6 +443,7 @@ Rml::LayerHandle BgfxReferenceRenderer::push_layer()
     m_layer_stack.push_back(handle);
     if (!inherited_clip_commands.empty()) {
         replay_clip_commands(handle, inherited_clip_commands);
+        layer.clip_commands = inherited_clip_commands;
     }
     if (m_ctx.perf) {
         m_ctx.perf->add_layer_push();
@@ -589,29 +591,27 @@ Rml::CompiledFilterHandle BgfxReferenceRenderer::save_layer_as_mask_image()
         return 0;
     }
     const FbRect bounds = full_frame_rect(m_surface);
-    bgfx::TextureHandle saved = copy_region_to_texture(
-        layer->color, rectangle_from_fb_rect(bounds), layer->width, layer->height,
-        "RmlUi.ReferenceSaveLayerAsMaskImage", false);
-    if (!bgfx::isValid(saved)) {
+    ReferenceTarget* blend_mask = ensure_target(PostprocessTargetKind::BlendMask, bounds);
+    if (!blend_mask) {
+        fail_frame("reference renderer SaveLayerAsMaskImage target allocation failed");
+        return 0;
+    }
+    if (!submit_composite(layer_region(*layer), blend_mask->framebuffer, Rml::BlendMode::Replace,
+                          ScissorState{false, {}}, false, 1, RmlUiPassKind::Copy,
+                          RmlUiPassReason::FilterMaskImage,
+                          "RmlUi.ReferenceSaveLayerAsMaskImage", bounds)) {
         fail_frame("reference renderer SaveLayerAsMaskImage copy failed");
         return 0;
     }
-    const Rml::TextureHandle texture = ++(*m_ctx.texture_counter);
-    m_ctx.textures->emplace(texture,
-                            TextureRecord{saved,
-                                          {bounds.w, bounds.h},
-                                          RenderBounds{framebuffer_to_logical(bounds, m_surface),
-                                                       bounds},
-                                          TextureOwnership::SavedLayer});
     FilterRecord filter;
     filter.kind = FilterKind::MaskImage;
-    filter.resource = texture;
+    filter.resource = 0;
     filter.mask_bounds = {bounds.x, bounds.y, bounds.w, bounds.h};
     const Rml::CompiledFilterHandle handle = ++(*m_ctx.filter_counter);
     m_ctx.filters->emplace(handle, filter);
-    trace("save_mask layer=%zu bounds=(%d,%d %dx%d) texture=%u filter=%zu",
+    trace("save_mask layer=%zu bounds=(%d,%d %dx%d) target_tex=%u filter=%zu",
           size_t(layer->handle), bounds.x, bounds.y, bounds.w, bounds.h,
-          bgfx::isValid(saved) ? saved.idx : 65535u, size_t(handle));
+          bgfx::isValid(blend_mask->color) ? blend_mask->color.idx : 65535u, size_t(handle));
     return handle;
 }
 
@@ -1304,24 +1304,37 @@ ReferenceTextureRegion BgfxReferenceRenderer::apply_filters(
             if (!m_ctx.textures) {
                 return {};
             }
-            auto tex_it = m_ctx.textures->find(Rml::TextureHandle(filter.resource));
-            if (tex_it == m_ctx.textures->end() || !bgfx::isValid(tex_it->second.handle)) {
-                return {};
+            bgfx::TextureHandle mask_texture = BGFX_INVALID_HANDLE;
+            if (filter.resource != 0) {
+                auto tex_it = m_ctx.textures->find(Rml::TextureHandle(filter.resource));
+                if (tex_it == m_ctx.textures->end() || !bgfx::isValid(tex_it->second.handle)) {
+                    return {};
+                }
+                mask_texture = tex_it->second.handle;
+            } else {
+                ReferenceTarget* blend_mask = ensure_target(PostprocessTargetKind::BlendMask,
+                                                            full_frame_rect(m_surface));
+                if (!blend_mask || !bgfx::isValid(blend_mask->color)) {
+                    return {};
+                }
+                mask_texture = blend_mask->color;
             }
             const FbRect mask_bounds{filter.mask_bounds[0], filter.mask_bounds[1],
                                      filter.mask_bounds[2], filter.mask_bounds[3]};
             auto mask_transform = compute_mask_uv_transform(destination->bounds, mask_bounds);
             if (bgfx::getCaps() && bgfx::getCaps()->originBottomLeft) {
-                mask_transform[1] = -mask_transform[1];
-                mask_transform[3] +=
-                    float(destination->bounds.h) / float(std::max(mask_bounds.h, 1));
+                const float inv_mask_h = 1.0f / float(std::max(mask_bounds.h, 1));
+                mask_transform[1] = float(destination->bounds.h) * inv_mask_h;
+                mask_transform[3] =
+                    1.0f - float(destination->bounds.y + destination->bounds.h - mask_bounds.y) *
+                               inv_mask_h;
             }
             ok = fullscreen_postprocess(
                 current->color, *destination, "RmlUi.ReferenceFilterMaskImage",
                 RmlUiPassReason::FilterMaskImage, [&](const RmlUiPass& pass) {
                     return m_ctx.draw_context->submit_mask_image(
-                        pass, draw_resources(), current->color, tex_it->second.handle,
-                        mask_transform, std::array<float, 4>{0.0f, 0.0f, 1.0f, 1.0f});
+                        pass, draw_resources(), current->color, mask_texture, mask_transform,
+                        std::array<float, 4>{0.0f, 0.0f, 1.0f, 1.0f});
                 });
             if (ok && m_ctx.perf) {
                 m_ctx.perf->add_mask(uint64_t(destination->width) * uint64_t(destination->height),
