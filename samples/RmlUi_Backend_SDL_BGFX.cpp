@@ -102,6 +102,28 @@ namespace {
     return !value || value[0] == '\0' || value[0] != '0';
 }
 
+[[nodiscard]] uint8_t reference_msaa_samples_from_env()
+{
+    const char* value = std::getenv("RMLUI_BGFX_REFERENCE_MSAA");
+    if (!value || value[0] == '\0') {
+        return 2;
+    }
+    const int samples = std::atoi(value);
+    switch (samples) {
+    case 0:
+    case 2:
+    case 4:
+    case 8:
+    case 16:
+        return uint8_t(samples);
+    default:
+        std::fprintf(stderr,
+                     "[rmlui-bgfx] unknown RMLUI_BGFX_REFERENCE_MSAA='%s'; using 2\n",
+                     value);
+        return 2;
+    }
+}
+
 [[nodiscard]] std::vector<std::uint8_t> read_file(const std::string& path)
 {
     SDL_IOStream* io = SDL_IOFromFile(path.c_str(), "rb");
@@ -397,6 +419,7 @@ bool Backend::Initialize(const char* window_name, int width, int height, bool al
     config.diagnostics = &data->diagnostics;
     config.render_path = render_path_from_env();
     config.blur_sample_bounds_mode = blur_sample_bounds_mode_from_env();
+    config.reference_msaa_samples = reference_msaa_samples_from_env();
     config.trace_filter_pipeline = trace_filter_pipeline_from_env();
 
     data->render_interface = std::make_unique<rmlui_bgfx::RenderInterface>(config);

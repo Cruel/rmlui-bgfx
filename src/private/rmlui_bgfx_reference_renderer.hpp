@@ -73,6 +73,7 @@ struct ReferenceRendererContext {
     const float* identity = nullptr;
     uint64_t premultiplied_blend_state = 0;
 
+    uint8_t reference_msaa_samples = 2;
     bool trace = false;
 };
 
@@ -86,6 +87,7 @@ struct ReferenceLayer {
     int height = 0;
     float projection[16]{};
     bool clip_mask_enabled = false;
+    bool msaa_enabled = false;
     uint8_t stencil_ref = 1;
     std::vector<size_t> clip_commands;
 };
@@ -194,8 +196,12 @@ private:
 
     [[nodiscard]] ReferenceTextureRegion layer_region(const ReferenceLayer& layer) const;
     [[nodiscard]] ReferenceTextureRegion target_region(const ReferenceTarget& target) const;
+    [[nodiscard]] uint64_t layer_color_flags() const;
+    [[nodiscard]] uint64_t layer_depth_flags() const;
+    [[nodiscard]] bool should_use_msaa_layers() const;
     [[nodiscard]] bool texture_attached_to_framebuffer(bgfx::TextureHandle texture,
                                                        bgfx::FrameBufferHandle framebuffer) const;
+    [[nodiscard]] bool framebuffer_msaa_enabled(bgfx::FrameBufferHandle framebuffer) const;
     [[nodiscard]] bool submit_composite(ReferenceTextureRegion source,
                                         bgfx::FrameBufferHandle destination,
                                         Rml::BlendMode blend_mode, ScissorState scissor,

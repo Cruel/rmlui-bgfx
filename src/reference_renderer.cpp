@@ -18,6 +18,8 @@ namespace {
 
 constexpr uint64_t kReferenceColorTargetFlags =
     BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP;
+constexpr uint64_t kReferenceMsaaColorTargetBaseFlags =
+    BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP;
 constexpr uint64_t kReferenceDepthTargetFlags = BGFX_TEXTURE_RT_WRITE_ONLY;
 
 [[nodiscard]] bool is_full_frame_rect(FbRect rect, const SurfaceMetrics& surface)
@@ -259,6 +261,7 @@ void BgfxReferenceRenderer::render_geometry(Rml::CompiledGeometryHandle geometry
                               m_transform_valid,
                               m_transform,
                               layer->clip_mask_enabled,
+                              layer->msaa_enabled,
                               stencil_test_state_for_ref(layer->stencil_ref)});
     if (submitted && m_ctx.perf) {
         m_ctx.perf->add_geometry(uint64_t(layer->width) * uint64_t(layer->height),
@@ -303,6 +306,7 @@ void BgfxReferenceRenderer::render_shader(Rml::CompiledShaderHandle shader,
                                   m_transform_valid,
                                   m_transform,
                                   layer->clip_mask_enabled,
+                                  layer->msaa_enabled,
                                   stencil_test_state_for_ref(layer->stencil_ref)});
         if (submitted && m_ctx.perf) {
             m_ctx.perf->add_gradient();
@@ -348,6 +352,7 @@ void BgfxReferenceRenderer::render_shader(Rml::CompiledShaderHandle shader,
         context.scissor_enabled = m_scissor_enabled;
         context.local_scissor = local_scissor;
         context.clip_mask_enabled = layer->clip_mask_enabled;
+        context.msaa_enabled = layer->msaa_enabled;
         context.stencil_state = stencil_test_state_for_ref(layer->stencil_ref);
         context.texture = bgfx_texture;
         context.texture_width = texture_width;
@@ -729,8 +734,9 @@ LayerRecord BgfxReferenceRenderer::draw_layer_adapter(const ReferenceLayer& laye
 bool BgfxReferenceRenderer::ensure_layer_target(ReferenceLayer& layer)
 {
     const RenderBounds bounds = full_frame_bounds(m_surface);
+    const bool requested_msaa = should_use_msaa_layers();
     if (bgfx::isValid(layer.framebuffer) && layer.width == bounds.framebuffer.w &&
-        layer.height == bounds.framebuffer.h) {
+        layer.height == bounds.framebuffer.h && layer.msaa_enabled == requested_msaa) {
         layer.bounds = bounds;
         bx::mtxOrtho(layer.projection, bounds.logical.x, bounds.logical.x + bounds.logical.w,
                      bounds.logical.y + bounds.logical.h, bounds.logical.y, -10000.0f, 10000.0f,
@@ -742,12 +748,15 @@ bool BgfxReferenceRenderer::ensure_layer_target(ReferenceLayer& layer)
         std::fprintf(stderr, "[rmlui] reference renderer requires a stencil-capable render target\n");
         return false;
     }
+    const bool msaa_enabled = requested_msaa;
+    const uint64_t color_flags = msaa_enabled ? layer_color_flags() : kReferenceColorTargetFlags;
+    const uint64_t depth_flags = msaa_enabled ? layer_depth_flags() : kReferenceDepthTargetFlags;
     bgfx::TextureHandle color = bgfx::createTexture2D(
         uint16_t(bounds.framebuffer.w), uint16_t(bounds.framebuffer.h), false, 1,
-        bgfx::TextureFormat::RGBA8, kReferenceColorTargetFlags);
+        bgfx::TextureFormat::RGBA8, color_flags);
     bgfx::TextureHandle depth = bgfx::createTexture2D(
         uint16_t(bounds.framebuffer.w), uint16_t(bounds.framebuffer.h), false, 1,
-        m_depth_stencil_format, kReferenceDepthTargetFlags);
+        m_depth_stencil_format, depth_flags);
     if (!bgfx::isValid(color) || !bgfx::isValid(depth)) {
         if (bgfx::isValid(color)) {
             bgfx::destroy(color);
@@ -768,6 +777,7 @@ bool BgfxReferenceRenderer::ensure_layer_target(ReferenceLayer& layer)
     layer.framebuffer = framebuffer;
     layer.color = color;
     layer.depth_stencil = depth;
+    layer.msaa_enabled = msaa_enabled;
     layer.bounds = bounds;
     layer.width = bounds.framebuffer.w;
     layer.height = bounds.framebuffer.h;
@@ -779,9 +789,51 @@ bool BgfxReferenceRenderer::ensure_layer_target(ReferenceLayer& layer)
         m_ctx.perf->add_layer_alloc(uint32_t(layer.width), uint32_t(layer.height));
         m_ctx.perf->update_layer_max(uint32_t(layer.width), uint32_t(layer.height));
     }
-    trace("allocate layer=%zu target=full-frame %dx%d", size_t(layer.handle), layer.width,
-          layer.height);
+    trace("allocate layer=%zu target=full-frame %dx%d msaa=%u", size_t(layer.handle),
+          layer.width, layer.height, msaa_enabled ? unsigned(m_ctx.reference_msaa_samples) : 0u);
     return true;
+}
+
+uint64_t BgfxReferenceRenderer::layer_color_flags() const
+{
+    switch (m_ctx.reference_msaa_samples) {
+    case 2:
+        return kReferenceMsaaColorTargetBaseFlags | BGFX_TEXTURE_RT_MSAA_X2;
+    case 4:
+        return kReferenceMsaaColorTargetBaseFlags | BGFX_TEXTURE_RT_MSAA_X4;
+    case 8:
+        return kReferenceMsaaColorTargetBaseFlags | BGFX_TEXTURE_RT_MSAA_X8;
+    case 16:
+        return kReferenceMsaaColorTargetBaseFlags | BGFX_TEXTURE_RT_MSAA_X16;
+    default:
+        return kReferenceColorTargetFlags;
+    }
+}
+
+uint64_t BgfxReferenceRenderer::layer_depth_flags() const
+{
+    switch (m_ctx.reference_msaa_samples) {
+    case 2:
+        return kReferenceDepthTargetFlags | BGFX_TEXTURE_RT_MSAA_X2;
+    case 4:
+        return kReferenceDepthTargetFlags | BGFX_TEXTURE_RT_MSAA_X4;
+    case 8:
+        return kReferenceDepthTargetFlags | BGFX_TEXTURE_RT_MSAA_X8;
+    case 16:
+        return kReferenceDepthTargetFlags | BGFX_TEXTURE_RT_MSAA_X16;
+    default:
+        return kReferenceDepthTargetFlags;
+    }
+}
+
+bool BgfxReferenceRenderer::should_use_msaa_layers() const
+{
+    if (m_ctx.reference_msaa_samples != 2 && m_ctx.reference_msaa_samples != 4 &&
+        m_ctx.reference_msaa_samples != 8 && m_ctx.reference_msaa_samples != 16) {
+        return false;
+    }
+    return bgfx::isTextureValid(0, false, 1, bgfx::TextureFormat::RGBA8, layer_color_flags()) &&
+           bgfx::isTextureValid(0, false, 1, m_depth_stencil_format, layer_depth_flags());
 }
 
 ReferenceTarget* BgfxReferenceRenderer::ensure_target(PostprocessTargetKind kind, FbRect bounds)
@@ -1002,7 +1054,7 @@ void BgfxReferenceRenderer::submit_clip_mask(
     const bool submitted = m_ctx.draw_context->submit_clip_mask(
         *pass, draw_resources(), geometry, adapter,
         BgfxClipMaskDrawState{translation, scissor, command_transform_valid,
-                              command_transform.data(), stencil_state});
+                              command_transform.data(), layer->msaa_enabled, stencil_state});
     if (submitted && m_ctx.perf) {
         m_ctx.perf->add_clip_mask(uint64_t(work.w) * uint64_t(work.h));
     }
@@ -1094,6 +1146,19 @@ bool BgfxReferenceRenderer::texture_attached_to_framebuffer(
     return false;
 }
 
+bool BgfxReferenceRenderer::framebuffer_msaa_enabled(bgfx::FrameBufferHandle framebuffer) const
+{
+    if (!bgfx::isValid(framebuffer)) {
+        return false;
+    }
+    for (const ReferenceLayer& layer : m_layers) {
+        if (bgfx::isValid(layer.framebuffer) && layer.framebuffer.idx == framebuffer.idx) {
+            return layer.msaa_enabled;
+        }
+    }
+    return false;
+}
+
 bool BgfxReferenceRenderer::submit_composite(
     ReferenceTextureRegion source, bgfx::FrameBufferHandle destination, Rml::BlendMode blend_mode,
     ScissorState scissor, bool apply_destination_stencil, uint8_t stencil_ref, RmlUiPassKind kind,
@@ -1133,6 +1198,7 @@ bool BgfxReferenceRenderer::submit_composite(
     op.scissor = scissor;
     op.apply_destination_stencil = apply_destination_stencil;
     op.stencil_ref = stencil_ref;
+    op.msaa_enabled = framebuffer_msaa_enabled(destination);
     op.kind = kind;
     op.reason = reason;
     op.name = name;

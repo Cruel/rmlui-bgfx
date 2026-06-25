@@ -224,6 +224,7 @@ struct RenderInterface::Impl {
           perf_logger(config.perf_logger),
           render_path(config.render_path),
           blur_sample_bounds_mode(config.blur_sample_bounds_mode),
+          reference_msaa_samples(config.reference_msaa_samples),
           trace_filter_pipeline(config.trace_filter_pipeline),
           pass_builder(config.views.begin, config.views.end, &perf),
           perf_logging_enabled(config.enable_perf_logging)
@@ -1147,7 +1148,7 @@ struct RenderInterface::Impl {
             *pass, draw_resources(), geometry, *layer,
             BgfxGeometryDrawState{translation, bgfx_texture,
                                   ScissorState{scissor_enabled, scissor_region}, transform_valid,
-                                  transform, layer->clip_mask_enabled, stencil_test_state()});
+                                  transform, layer->clip_mask_enabled, false, stencil_test_state()});
     }
 
     bool ensure_fullscreen_geometry()
@@ -1239,6 +1240,7 @@ struct RenderInterface::Impl {
                                                      shadow_offset_uniform};
         context.identity = identity;
         context.premultiplied_blend_state = kRmlBlendState;
+        context.reference_msaa_samples = reference_msaa_samples;
         context.trace = trace_filter_pipeline;
         return context;
     }
@@ -1564,7 +1566,7 @@ struct RenderInterface::Impl {
         draw_context.submit_clip_mask(
             *pass, draw_resources(), geometry, *layer,
             BgfxClipMaskDrawState{translation, scissor, command_transform_valid,
-                                  command_transform.data(), stencil_state});
+                                  command_transform.data(), false, stencil_state});
     }
 
     void apply_clip_command(const ClipCommand& command, bool record_on_layer)
@@ -1680,7 +1682,7 @@ struct RenderInterface::Impl {
         draw_context.submit_gradient(
             *pass, draw_resources(), shader, geometry, *layer,
             BgfxGradientDrawState{translation, ScissorState{scissor_enabled, scissor_region},
-                                  transform_valid, transform, layer->clip_mask_enabled,
+                                  transform_valid, transform, layer->clip_mask_enabled, false,
                                   stencil_test_state()});
     }
 
@@ -1826,6 +1828,7 @@ struct RenderInterface::Impl {
     bool base_direct_compatibility_enabled = false;
     RenderPath render_path = RenderPath::Reference;
     BlurSampleBoundsMode blur_sample_bounds_mode = BlurSampleBoundsMode::SourceBounds;
+    uint8_t reference_msaa_samples = 2;
     bool trace_filter_pipeline = false;
 
     // Cached stencil format (probed once to avoid getInternalformatParameter spam).

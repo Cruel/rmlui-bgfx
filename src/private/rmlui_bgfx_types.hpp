@@ -193,6 +193,7 @@ struct CompositeOp {
     Rml::BlendMode blend_mode = Rml::BlendMode::Blend;
     ScissorState scissor;
     bool apply_destination_stencil = false;
+    bool msaa_enabled = false;
     uint8_t stencil_ref = 1;
     RmlUiPassKind kind = RmlUiPassKind::LayerComposite;
     RmlUiPassReason reason = RmlUiPassReason::LayerComposite;

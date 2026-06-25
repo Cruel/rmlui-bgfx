@@ -55,6 +55,7 @@ struct BgfxGeometryDrawState {
     bool transform_valid = false;
     const float* transform = nullptr;
     bool clip_mask_enabled = false;
+    bool msaa_enabled = false;
     uint32_t stencil_state = 0;
 };
 
@@ -64,6 +65,7 @@ struct BgfxGradientDrawState {
     bool transform_valid = false;
     const float* transform = nullptr;
     bool clip_mask_enabled = false;
+    bool msaa_enabled = false;
     uint32_t stencil_state = 0;
 };
 
@@ -72,6 +74,7 @@ struct BgfxClipMaskDrawState {
     ScissorState scissor;
     bool transform_valid = false;
     const float* transform = nullptr;
+    bool msaa_enabled = false;
     uint32_t stencil_state = 0;
 };
 

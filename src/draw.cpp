@@ -83,7 +83,7 @@ bool BgfxDrawContext::submit_geometry(const RmlUiPass& pass, const BgfxDrawResou
     const float translate[4] = {state.translation.x, state.translation.y, 0.0f, 0.0f};
     bgfx::setUniform(resources.translate_uniform, translate);
     bgfx::setTexture(0, resources.sampler, state.texture);
-    bgfx::setState(resources.blend_state);
+    bgfx::setState(resources.blend_state | (state.msaa_enabled ? BGFX_STATE_MSAA : 0));
     if (state.clip_mask_enabled) {
         bgfx::setStencil(state.stencil_state, state.stencil_state);
     }
@@ -138,7 +138,7 @@ bool BgfxDrawContext::submit_gradient(const RmlUiPass& pass, const BgfxDrawResou
     bgfx::setUniform(resources.gradient_params_uniform, gradient_params.data(), 2);
     bgfx::setUniform(resources.gradient_stops_uniform, stop_colors.data(), kGradientStopLimit);
     bgfx::setUniform(resources.gradient_stop_meta_uniform, stop_positions.data(), 4);
-    bgfx::setState(resources.blend_state);
+    bgfx::setState(resources.blend_state | (state.msaa_enabled ? BGFX_STATE_MSAA : 0));
     if (state.clip_mask_enabled) {
         bgfx::setStencil(state.stencil_state, state.stencil_state);
     }
@@ -181,7 +181,7 @@ bool BgfxDrawContext::submit_composite(const RmlUiPass& pass, const BgfxDrawReso
     const uint64_t state = op.blend_mode == Rml::BlendMode::Replace
                                ? (BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A)
                                : resources.blend_state;
-    bgfx::setState(state);
+    bgfx::setState(state | (op.msaa_enabled ? BGFX_STATE_MSAA : 0));
     if (op.apply_destination_stencil) {
         bgfx::setStencil(stencil_state, stencil_state);
     }
@@ -338,7 +338,7 @@ bool BgfxDrawContext::submit_clip_mask(const RmlUiPass& pass, const BgfxDrawReso
     const float translate[4] = {state.translation.x, state.translation.y, 0.0f, 0.0f};
     bgfx::setUniform(resources.translate_uniform, translate);
     bgfx::setTexture(0, resources.sampler, resources.white_texture);
-    bgfx::setState(BGFX_STATE_NONE);
+    bgfx::setState(state.msaa_enabled ? BGFX_STATE_MSAA : BGFX_STATE_NONE);
     bgfx::setStencil(state.stencil_state, state.stencil_state);
     bgfx::submit(pass.view, resources.rmlui_program);
     return true;
