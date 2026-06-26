@@ -234,16 +234,6 @@ public:
     }
 };
 
-void premultiply_rgba(std::vector<std::uint8_t>& rgba)
-{
-    for (std::size_t i = 0; i + 3 < rgba.size(); i += 4) {
-        const std::uint8_t alpha = rgba[i + 3];
-        rgba[i + 0] = static_cast<std::uint8_t>((unsigned(rgba[i + 0]) * unsigned(alpha)) / 255u);
-        rgba[i + 1] = static_cast<std::uint8_t>((unsigned(rgba[i + 1]) * unsigned(alpha)) / 255u);
-        rgba[i + 2] = static_cast<std::uint8_t>((unsigned(rgba[i + 2]) * unsigned(alpha)) / 255u);
-    }
-}
-
 class SampleTextureLoader final : public rmlui_bgfx::TextureLoader {
 public:
     [[nodiscard]] bool load_rgba8(const char* source, rmlui_bgfx::LoadedTexture& out,
@@ -291,7 +281,6 @@ public:
         out.height = height;
         out.rgba8.assign(pixels, pixels + pixel_size);
         stbi_image_free(pixels);
-        premultiply_rgba(out.rgba8);
         return true;
     }
 

@@ -36,7 +36,7 @@ namespace rmlui_bgfx {
 
 namespace {
 
-constexpr uint64_t kRmlTextureFlags = BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP;
+constexpr uint64_t kRmlTextureFlags = 0;
 constexpr uint64_t kRmlBlendState =
     BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A |
     BGFX_STATE_BLEND_FUNC_SEPARATE(BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_INV_SRC_ALPHA,
