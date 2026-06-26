@@ -699,6 +699,13 @@ struct RenderInterface::Impl {
             }
         }
         if (!is_empty(saved_texture_bounds)) {
+            if (layer.push_transform_valid) {
+                // The layer transform is applied after recording. A compact target in untransformed
+                // content coordinates cannot preserve a saved texture's render-space contract.
+                // A future optimization can use transformed callback-quad bounds if it also rebases
+                // every geometry, clip-mask, and composite operation into that target's origin.
+                return bounds_from_framebuffer_rect({0, 0, width, height});
+            }
             // Preserve the callback quad's complete coordinate space without paying for a
             // full-frame target. Parent clipping is still applied when the layer is composited.
             return bounds_from_framebuffer_rect(saved_texture_bounds);
