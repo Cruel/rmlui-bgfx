@@ -889,6 +889,15 @@ struct RenderInterface::Impl {
         }();
 
         active_layer = handle;
+        if (trace_filter_pipeline) {
+            std::fprintf(stderr,
+                         "[rmlui-bgfx][replay] begin layer=%zu commands=%zu bounds=(%d,%d %dx%d) texture=%dx%d clips=%zu\n",
+                         size_t(handle), commands.size(), layer->bounds.framebuffer.x,
+                         layer->bounds.framebuffer.y, layer->bounds.framebuffer.w,
+                         layer->bounds.framebuffer.h, layer->texture_width, layer->texture_height,
+                         layer->clip_commands.size());
+        }
+        size_t command_index = 0;
         for (const RecordedDrawCommand& command : commands) {
             LayerRecord* replay_layer = materialized_layer_for_handle(handle);
             if (!replay_layer)
@@ -901,6 +910,30 @@ struct RenderInterface::Impl {
             }
             replay_layer->clip_mask_enabled = command.clip_mask_enabled;
             replay_layer->stencil_ref = command.stencil_ref;
+            if (trace_filter_pipeline) {
+                const auto bounds = command_fb_bounds(command.geometry, command.translation,
+                                                      command.scissor, command.transform_valid,
+                                                      command.transform);
+                std::fprintf(stderr,
+                             "[rmlui-bgfx][replay] layer=%zu cmd=%zu kind=%d geom=%zu shader=%zu tex=%zu transform=%d clip=%d ref=%u scissor=%d",
+                             size_t(handle), command_index, int(command.kind),
+                             size_t(command.geometry), size_t(command.shader), size_t(command.texture),
+                             command.transform_valid ? 1 : 0,
+                             command.clip_mask_enabled ? 1 : 0, unsigned(command.stencil_ref),
+                             command.scissor.enabled ? 1 : 0);
+                if (bounds) {
+                    std::fprintf(stderr, " bounds=(%d,%d %dx%d)", bounds->x, bounds->y,
+                                 bounds->w, bounds->h);
+                } else {
+                    std::fprintf(stderr, " bounds=<fallback>");
+                }
+                if (command.scissor.enabled) {
+                    std::fprintf(stderr, " scissor_rect=(%d,%d %dx%d)",
+                                 command.scissor.region.Left(), command.scissor.region.Top(),
+                                 command.scissor.region.Width(), command.scissor.region.Height());
+                }
+                std::fprintf(stderr, "\n");
+            }
 
             switch (command.kind) {
             case RecordedCommandKind::Geometry: {
@@ -933,6 +966,7 @@ struct RenderInterface::Impl {
                 break;
             }
             }
+            ++command_index;
         }
 
         if (LayerRecord* final_layer = materialized_layer_for_handle(handle)) {
@@ -1352,6 +1386,13 @@ struct RenderInterface::Impl {
     {
         if (region.Width() <= 0 || region.Height() <= 0 || !bgfx::isValid(source))
             return BGFX_INVALID_HANDLE;
+        Rml::Rectanglei sample_region = region;
+        const bool origin_bottom_left = bgfx::getCaps() && bgfx::getCaps()->originBottomLeft;
+        if (flip_y && origin_bottom_left && source_height > region.Height()) {
+            const int sample_top = source_height - region.Bottom();
+            sample_region = Rml::Rectanglei::FromPositionSize(
+                {region.Left(), sample_top}, {region.Width(), region.Height()});
+        }
         const bool can_blit = !flip_y && bgfx::getCaps() &&
                               (bgfx::getCaps()->supported & BGFX_CAPS_TEXTURE_BLIT) != 0;
         const uint64_t flags = (can_blit ? BGFX_TEXTURE_BLIT_DST : BGFX_TEXTURE_RT) |
@@ -1371,7 +1412,7 @@ struct RenderInterface::Impl {
             }
             perf.add_copy();
             perf.add_copy_pixels(uint64_t(region.Width()) * uint64_t(region.Height()));
-            draw_context.submit_blit(*pass, texture, source, region);
+            draw_context.submit_blit(*pass, texture, source, sample_region);
             return texture;
         }
 
@@ -1380,8 +1421,8 @@ struct RenderInterface::Impl {
             bgfx::destroy(texture);
             return BGFX_INVALID_HANDLE;
         }
-        const bool copied = copy_region_to_framebuffer(source, framebuffer, region, source_width,
-                                                       source_height, name, flip_y);
+        const bool copied = copy_region_to_framebuffer(source, framebuffer, sample_region,
+                                                       source_width, source_height, name, flip_y);
         bgfx::destroy(framebuffer);
         if (!copied) {
             bgfx::destroy(texture);
@@ -1404,6 +1445,13 @@ struct RenderInterface::Impl {
         if (region.Width() == output_dimensions.x && region.Height() == output_dimensions.y &&
             destination_offset.x == 0 && destination_offset.y == 0) {
             return copy_region_to_texture(source, region, source_width, source_height, name, flip_y);
+        }
+        Rml::Rectanglei sample_region = region;
+        const bool origin_bottom_left = bgfx::getCaps() && bgfx::getCaps()->originBottomLeft;
+        if (flip_y && origin_bottom_left && source_height > region.Height()) {
+            const int sample_top = source_height - region.Bottom();
+            sample_region = Rml::Rectanglei::FromPositionSize(
+                {region.Left(), sample_top}, {region.Width(), region.Height()});
         }
 
         constexpr uint64_t flags = BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP;
@@ -1441,7 +1489,7 @@ struct RenderInterface::Impl {
         }
         perf.add_copy();
         perf.add_copy_pixels(uint64_t(region.Width()) * uint64_t(region.Height()));
-        const bool copied = draw_context.submit_copy(*pass, draw_resources(), source, region,
+        const bool copied = draw_context.submit_copy(*pass, draw_resources(), source, sample_region,
                                                      source_width, source_height, flip_y);
         bgfx::destroy(framebuffer);
         if (!copied) {

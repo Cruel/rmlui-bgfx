@@ -1,0 +1,35 @@
+<rml>
+<head>
+<link type="text/rcss" href="common.rcss"/>
+<title>Effects Probe 21</title>
+<style>
+.panel { display: block; box-sizing: border-box; margin: 30dp auto; width: 858dp; height: 560dp; overflow: auto; background: #a4b6b7; padding: 24dp; border-color: #d9eeee; }
+.content { display: block; width: 810dp; height: 1700dp; color: #111; filter: opacity(1) sepia(0) grayscale(0) saturate(1) brightness(1) contrast(1) hue-rotate(0deg) invert(0) blur(0px); }
+.box { display: block; width: 280dp; min-width: 280dp; height: 70dp; margin: 34dp auto; padding: 15dp; background: #f5f7f8; border: 2dp #def6f7; border-radius: 30dp 8dp; color: #111; box-sizing: border-box; }
+.left { margin-left: 30dp; margin-right: 0; }
+.right { margin-left: auto; margin-right: 30dp; }
+.shadow { box-shadow: #f66 30dp 30dp 0 0, #c88 60dp 60dp 0 0, #baa 90dp 90dp 0 0; }
+.marker { display: block; width: 810dp; height: 90dp; padding: 26dp; margin: 80dp 0; background: #203044; color: #f5f7ff; border: 2dp #ffffff; }
+</style>
+</head>
+<body>
+<h1>Effects Probe 21 - explicit mid/bottom scroll reveal</h1>
+<p>Large visible markers prove whether scrolling reveals later content.</p>
+<div class="panel">
+<div class="content">
+<div class="marker">top marker</div>
+<div class="box left shadow">01 top left shadow</div>
+<div class="box right">02 top right</div>
+<div class="marker">mid marker must appear after scrolling</div>
+<div class="box left">03 mid left</div>
+<div class="box right shadow">04 mid right shadow</div>
+<div class="box">05 mid center</div>
+<div class="marker">lower marker must appear after more scrolling</div>
+<div class="box left shadow">06 lower left shadow</div>
+<div class="box right">07 lower right</div>
+<div class="box">08 lower center</div>
+<div class="marker">bottom marker must be visible at bottom</div>
+</div>
+</div>
+</body>
+</rml>

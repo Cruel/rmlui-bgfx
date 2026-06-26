@@ -1,0 +1,36 @@
+<rml>
+<head>
+<link type="text/rcss" href="common.rcss"/>
+<title>Effects Probe 22</title>
+<style>
+body { perspective: 1200dp; perspective-origin: 50% 0; }
+.panel { display: block; box-sizing: border-box; margin: 30dp auto; width: 858dp; height: 560dp; overflow: auto; background: #a4b6b7; padding: 24dp; border-color: #d9eeee; }
+.content { display: block; width: 810dp; height: 1400dp; color: #111; }
+.box { display: block; width: 280dp; min-width: 280dp; height: 70dp; margin: 40dp auto; padding: 15dp; background: #f5f7f8; border: 2dp #def6f7; border-radius: 30dp 8dp; color: #111; box-sizing: border-box; }
+.rot { transform: rotate3d(0.2, 0.4, 0.1, 15deg); }
+.shadow { box-shadow: #f00f 40px 30px 25px 0px, #00ff -40px -30px 45px 0px; }
+.left { margin-left: 30dp; margin-right: 0; }
+.right { margin-left: auto; margin-right: 30dp; }
+.marker { display: block; width: 810dp; height: 90dp; padding: 26dp; margin: 40dp 0; background: #203044; color: #f5f7ff; border: 2dp #ffffff; }
+</style>
+</head>
+<body>
+<h1>Effects Probe 22 - no wrapper filter control</h1>
+<p>Transformed shadow rows without an outer filter wrapper.</p>
+<div class="panel">
+<div class="content">
+<div class="marker">top marker without wrapper filter</div>
+<div class="box left rot shadow">01 rotated shadow left</div>
+<div class="box rot shadow">02 rotated shadow center</div>
+<div class="box right rot shadow">03 rotated shadow right</div>
+<div class="marker">mid marker without wrapper filter</div>
+<div class="box left rot shadow">04 rotated shadow left</div>
+<div class="box rot shadow">05 rotated shadow center</div>
+<div class="box right rot shadow">06 rotated shadow right</div>
+<div class="box left rot shadow">07 rotated shadow left</div>
+<div class="box rot shadow">08 rotated shadow center</div>
+<div class="marker">bottom marker without wrapper filter</div>
+</div>
+</div>
+</body>
+</rml>

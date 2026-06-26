@@ -1,0 +1,34 @@
+<rml>
+<head>
+<link type="text/rcss" href="common.rcss"/>
+<title>Effects Probe 14</title>
+<style>
+.panel { display: block; box-sizing: border-box; margin: 30dp auto; width: 858dp; height: 560dp; overflow: auto; background: #a4b6b7; padding: 24dp; border-color: #d9eeee; }
+.content { display: block; width: 810dp; height: 1280dp; color: #111; filter: opacity(1) sepia(0) grayscale(0) saturate(1) brightness(1) contrast(1) hue-rotate(0deg) invert(0) blur(0px); }
+.box { display: block; width: 280dp; min-width: 280dp; height: 70dp; margin: 26dp auto; padding: 15dp; background: #f5f7f8; border: 2dp #def6f7; border-radius: 30dp 8dp; color: #111; box-sizing: border-box; }
+.left { margin-left: 30dp; margin-right: 0; }
+.right { margin-left: auto; margin-right: 30dp; }
+.marker { display: block; width: 810dp; height: 90dp; padding: 26dp; margin: 40dp 0; background: #203044; color: #f5f7ff; border: 2dp #ffffff; }
+</style>
+</head>
+<body>
+<h1>Effects Probe 14 - no-op filter wrapper scroll</h1>
+<p>Same as 13, but the scrolling content has the full no-op filter chain.</p>
+<div class="panel">
+<div class="content">
+<div class="marker">top marker inside no-op filtered wrapper</div>
+<div class="box left">01 no-op filter left</div>
+<div class="box">02 no-op filter center</div>
+<div class="box right">03 no-op filter right</div>
+<div class="marker">mid marker inside no-op filtered wrapper</div>
+<div class="box left">04 no-op filter left</div>
+<div class="box">05 no-op filter center</div>
+<div class="box right">06 no-op filter right</div>
+<div class="box left">07 no-op filter left</div>
+<div class="box">08 no-op filter center</div>
+<div class="box right">09 no-op filter right</div>
+<div class="marker">bottom marker inside no-op filtered wrapper</div>
+</div>
+</div>
+</body>
+</rml>

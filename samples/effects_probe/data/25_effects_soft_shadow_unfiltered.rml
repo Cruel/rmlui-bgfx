@@ -1,0 +1,30 @@
+<rml>
+<head>
+<link type="text/rcss" href="common.rcss"/>
+<title>Effects Probe 25</title>
+<style>
+body { perspective: 1200dp; perspective-origin: 50% 0; }
+.panel { display: block; box-sizing: border-box; margin: 30dp auto; width: 858dp; height: 560dp; overflow: auto; background: #a4b6b7; padding: 24dp; border-color: #d9eeee; }
+.content { display: block; width: 810dp; height: 1100dp; color: #111; }
+.box { display: block; width: 280dp; min-width: 280dp; height: 70dp; margin: 10dp auto; padding: 15dp; background: #fff8; border: 2dp #def6f7; border-radius: 30dp 8dp; color: #111; box-sizing: border-box; position: relative; }
+.marker { display: block; width: 810dp; height: 90dp; padding: 26dp; margin: 40dp 0; background: #203044; color: #f5f7ff; border: 2dp #ffffff; }
+.transform { transform: rotate3d(0.2, 0.4, 0.1, 15deg); }
+.boxshadow_blur { box-shadow: #f00f 40px 30px 25px 0px, #00ff -40px -30px 45px 0px, #0f08 -60px 70px 60px 0px, #333a 0px 0px 30px 15px inset; margin-top: 100px; margin-bottom: 100px; }
+.left { margin-left: 30dp; margin-right: 0; }
+</style>
+</head>
+<body>
+<h1>Effects Probe 25 - soft shadow unfiltered</h1>
+<p>Same as 24, but without the outer no-op filtered wrapper.</p>
+<div class="panel">
+<div class="content">
+<div class="marker">top marker</div>
+<div class="box boxshadow_blur transform">01 rotated blur-shadow</div>
+<div class="box left">02 following plain row</div>
+<div class="marker">mid marker</div>
+<div class="box">03 plain center</div>
+<div class="marker">bottom marker</div>
+</div>
+</div>
+</body>
+</rml>

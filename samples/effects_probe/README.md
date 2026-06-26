@@ -32,9 +32,30 @@ Cases:
 - `10` combines nested scrolling with transforms and box-shadow decorators.
 - `11` combines nested scrolling with transforms and CSS filters.
 - `12` combines nested scrolling, transforms, box-shadow decorators, and CSS filters.
+- `13` starts a stripped-down Effects sample layout with a fixed header, document scrolling,
+  left/center/right rows, and explicit top/bottom markers.
+- `14` adds the full-sample style no-op outer filter chain around the scrolling content.
+- `15` adds transformed rows inside the no-op filtered wrapper.
+- `16` adds the full-sample shadow overflow patterns inside the no-op filtered wrapper.
+- `17` adds per-item real color/blur/drop-shadow filters while preserving scroll markers.
+- `18` applies a real outer blur to the full scrolling wrapper.
+- `19` applies a real outer drop-shadow to the full scrolling wrapper.
+- `20` adds an absolute backdrop-filter window over the scrolling filtered wrapper.
+- `21` uses large mid/lower/bottom markers to make scroll reveal failures obvious.
+- `22` is the transformed-shadow scrolling control without the outer wrapper filter.
+- `23` combines the stripped full Effects slice: no-op wrapper filter, transformed shadow,
+  shadow overflow, real per-item filters, a large placeholder, and backdrop-filter.
+- `24` isolates the full-sample rotated blur box-shadow inside the no-op filtered wrapper.
+- `25` is the matching rotated blur box-shadow control without the outer wrapper filter.
+- `26` isolates the full-sample trail box-shadow inside the no-op filtered wrapper.
+- `27` is the matching trail box-shadow control without the outer wrapper filter.
+- `28` isolates the full-sample blur box-shadow without transform inside the no-op filtered wrapper.
 
 Suggested workflow:
 
 1. Run the same case with `RMLUI_BGFX_RENDER_PATH=reference` and `RMLUI_BGFX_RENDER_PATH=optimized`.
 2. Start at `06` and move upward until optimized first diverges. That identifies the first operation combination that breaks bounded nested scrolling.
-3. When optimized differs from reference, rerun that exact case with `RMLUI_BGFX_FILTER_TRACE=1` and capture the output.
+3. For the full Effects sample failure, start at `13` and move upward. The first case where
+   optimized stops revealing rows or markers while scrolling identifies the missing interaction.
+4. When optimized differs from reference, rerun that exact case with `RMLUI_BGFX_FILTER_TRACE=1`
+   and capture the output.

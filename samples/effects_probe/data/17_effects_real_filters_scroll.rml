@@ -1,0 +1,45 @@
+<rml>
+<head>
+<link type="text/rcss" href="common.rcss"/>
+<title>Effects Probe 17</title>
+<style>
+.panel { display: block; box-sizing: border-box; margin: 30dp auto; width: 858dp; height: 560dp; overflow: auto; background: #a4b6b7; padding: 24dp; border-color: #d9eeee; }
+.content { display: block; width: 810dp; height: 1320dp; color: #111; filter: opacity(1) sepia(0) grayscale(0) saturate(1) brightness(1) contrast(1) hue-rotate(0deg) invert(0) blur(0px); }
+.box { display: block; width: 280dp; min-width: 280dp; height: 70dp; margin: 30dp auto; padding: 15dp; background: #f5f7f8; border: 2dp #def6f7; border-radius: 30dp 8dp; color: #111; box-sizing: border-box; }
+.left { margin-left: 30dp; margin-right: 0; }
+.right { margin-left: auto; margin-right: 30dp; }
+.brightness { filter: brightness(0.5); }
+.contrast { filter: contrast(0.5); }
+.sepia { filter: sepia(80%); }
+.grayscale { filter: grayscale(0.9); }
+.saturate { filter: saturate(200%); }
+.hue { filter: hue-rotate(260deg); }
+.invert { filter: invert(100%); }
+.opacity { filter: opacity(0.2); }
+.blur { filter: blur(10px); }
+.drop { filter: drop-shadow(#f33f 30px 20px 5px); }
+.marker { display: block; width: 810dp; height: 90dp; padding: 26dp; margin: 40dp 0; background: #203044; color: #f5f7ff; border: 2dp #ffffff; }
+</style>
+</head>
+<body>
+<h1>Effects Probe 17 - real filters scroll</h1>
+<p>Real per-row filters inside a no-op filtered scrolling wrapper.</p>
+<div class="panel">
+<div class="content">
+<div class="marker">top marker</div>
+<div class="box left brightness">01 brightness left</div>
+<div class="box contrast">02 contrast center</div>
+<div class="box right sepia">03 sepia right</div>
+<div class="marker">mid marker</div>
+<div class="box left grayscale">04 grayscale left</div>
+<div class="box saturate">05 saturate center</div>
+<div class="box right hue">06 hue right</div>
+<div class="box left invert">07 invert left</div>
+<div class="box opacity">08 opacity center</div>
+<div class="box right blur">09 blur right</div>
+<div class="box left drop">10 drop-shadow left</div>
+<div class="marker">bottom marker</div>
+</div>
+</div>
+</body>
+</rml>

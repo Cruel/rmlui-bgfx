@@ -1,0 +1,48 @@
+<rml>
+<head>
+<link type="text/rcss" href="common.rcss"/>
+<title>Effects Probe 23</title>
+<style>
+body { perspective: 1200dp; perspective-origin: 50% 0; }
+.panel { display: block; box-sizing: border-box; position: relative; margin: 30dp auto; width: 858dp; height: 560dp; overflow: auto; background: #a4b6b7; padding: 24dp; border-color: #d9eeee; }
+.content { display: block; width: 810dp; height: 1600dp; color: #111; filter: opacity(1) sepia(0) grayscale(0) saturate(1) brightness(1) contrast(1) hue-rotate(0deg) invert(0) blur(0px); }
+.box { display: block; width: 280dp; min-width: 280dp; height: 70dp; margin: 34dp auto; padding: 15dp; background: #f5f7f8; border: 2dp #def6f7; border-radius: 30dp 8dp; color: #111; box-sizing: border-box; }
+.big { width: 500dp; height: 220dp; border-color: #333333; }
+.rot { transform: rotate3d(0.2, 0.4, 0.1, 15deg); }
+.soft-shadow { box-shadow: #f00f 40px 30px 25px 0px, #00ff -40px -30px 45px 0px, #0f08 -60px 70px 60px 0px, #333a 0px 0px 30px 15px inset; margin-top: 90dp; margin-bottom: 90dp; }
+.trail { box-shadow: #f66 30dp 30dp 0 0, #c88 60dp 60dp 0 0, #baa 90dp 90dp 0 0; margin-bottom: 100dp; filter: opacity(1); }
+.inset { box-shadow: #f4fd 10px 5px 5px 3px inset; }
+.brightness { filter: brightness(0.5); }
+.contrast { filter: contrast(0.5); }
+.blur { filter: blur(10px); }
+.drop { filter: drop-shadow(#f33f 30px 20px 5px); }
+.left { margin-left: 30dp; margin-right: 0; }
+.right { margin-left: auto; margin-right: 30dp; }
+.backdrop { position: absolute; left: 34dp; top: 300dp; margin: 0; background: #ffffff88; backdrop-filter: blur(5px); }
+.marker { display: block; width: 810dp; height: 90dp; padding: 26dp; margin: 40dp 0; background: #203044; color: #f5f7ff; border: 2dp #ffffff; }
+</style>
+</head>
+<body>
+<h1>Effects Probe 23 - stripped full effects slice</h1>
+<p>Combined slice: no-op wrapper, transforms, shadows, filters, backdrop, and scroll markers.</p>
+<div class="panel">
+<div class="content">
+<div class="marker">top marker</div>
+<div class="box rot soft-shadow">01 rotated shadow blur equivalent</div>
+<div class="box left">02 left plain</div>
+<div class="box right trail">03 right trail shadow</div>
+<div class="marker">mid marker</div>
+<div class="box inset">04 inset shadow</div>
+<div class="box big">05 big placeholder</div>
+<div class="box left brightness">06 brightness left</div>
+<div class="box right contrast">07 contrast right</div>
+<div class="box blur">08 blur center</div>
+<div class="box left drop">09 drop-shadow left</div>
+<div class="box right">10 right plain</div>
+<div class="box left">11 left plain</div>
+<div class="marker">bottom marker</div>
+</div>
+<div class="box backdrop">absolute backdrop blur window</div>
+</div>
+</body>
+</rml>

@@ -1,0 +1,22 @@
+<rml>
+<head>
+<link type="text/rcss" href="common.rcss"/>
+<title>Effects Probe 30</title>
+<style>
+.panel { display: block; box-sizing: border-box; margin: 30dp auto; width: 858dp; height: 560dp; overflow: auto; background: #a4b6b7; padding: 24dp; border-color: #d9eeee; }
+.content { display: block; width: 810dp; height: 360dp; color: #111; }
+.box { display: block; width: 280dp; min-width: 280dp; height: 70dp; margin: 40dp auto; padding: 15dp; background: #fff8; border: 2dp #def6f7; border-radius: 30dp 8dp; color: #111; box-sizing: border-box; position: relative; }
+.inset_no_blur { box-shadow: #ffac 0 0 0 8dp inset; }
+</style>
+</head>
+<body>
+<h1>Effects Probe 30 - inset no blur</h1>
+<p>Single inset box-shadow without blur or outer shadows.</p>
+<div class="panel">
+<div class="content">
+<div class="box inset_no_blur">01 inset no blur</div>
+<div class="box">02 plain row</div>
+</div>
+</div>
+</body>
+</rml>

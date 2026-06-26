@@ -399,10 +399,10 @@ BgfxFilterPipeline::apply_common(const BgfxFilterPipelineContext& ctx, TextureRe
         return {};
     }
 
-    source.global_bounds = source_valid_global_bounds;
-    source.local_rect = {source_valid_global_bounds.x - source_bounds.framebuffer.x,
-                         source_valid_global_bounds.y - source_bounds.framebuffer.y,
+    source.local_rect = {source.local_rect.x + source_valid_global_bounds.x - source.global_bounds.x,
+                         source.local_rect.y + source_valid_global_bounds.y - source.global_bounds.y,
                          source_valid_global_bounds.w, source_valid_global_bounds.h};
+    source.global_bounds = source_valid_global_bounds;
     result.output = source;
     result.output_bounds = render_bounds_from_framebuffer(source_valid_global_bounds, ctx.surface);
     result.valid_output_bounds = result.output_bounds;
@@ -522,12 +522,12 @@ BgfxFilterPipeline::apply_common(const BgfxFilterPipelineContext& ctx, TextureRe
         return result;
     }
 
-    const FbRect source_copy_global = intersect(source_bounds.framebuffer, clamped_work_bounds);
+    const FbRect source_copy_global = intersect(source.global_bounds, clamped_work_bounds);
     if (is_empty(source_copy_global)) {
         return {};
     }
-    const FbRect source_copy_local{source_copy_global.x - source_bounds.framebuffer.x,
-                                   source_copy_global.y - source_bounds.framebuffer.y,
+    const FbRect source_copy_local{source.local_rect.x + source_copy_global.x - source.global_bounds.x,
+                                   source.local_rect.y + source_copy_global.y - source.global_bounds.y,
                                    source_copy_global.w, source_copy_global.h};
     const FbRect copy_destination{source_copy_global.x - clamped_work_bounds.x,
                                   source_copy_global.y - clamped_work_bounds.y,

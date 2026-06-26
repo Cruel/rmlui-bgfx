@@ -22,6 +22,7 @@
 #include <stb_image.h>
 
 #include <algorithm>
+#include <cstdarg>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -97,12 +98,17 @@ namespace {
     return rmlui_bgfx::BlurSampleBoundsMode::SourceBounds;
 }
 
-[[nodiscard]] bool trace_filter_pipeline_from_env()
+[[nodiscard]] bool env_flag_enabled(const char* name)
 {
-    const char* value = std::getenv("RMLUI_BGFX_FILTER_TRACE");
+    const char* value = std::getenv(name);
     return value && (value[0] == '1' || value[0] == 't' || value[0] == 'T' ||
                      value[0] == 'y' || value[0] == 'Y' || value[0] == 'o' ||
                      value[0] == 'O');
+}
+
+[[nodiscard]] bool trace_filter_pipeline_from_env()
+{
+    return env_flag_enabled("RMLUI_BGFX_FILTER_TRACE");
 }
 
 [[nodiscard]] uint8_t reference_msaa_samples_from_env()
@@ -168,6 +174,46 @@ namespace {
     bgfx::setName(shader, path.c_str());
     return shader;
 }
+
+class SampleBgfxCallback final : public bgfx::CallbackI {
+public:
+    explicit SampleBgfxCallback(bool in_trace_enabled) : trace_enabled(in_trace_enabled) {}
+
+    void fatal(const char* file_path, uint16_t line, bgfx::Fatal::Enum, const char* message) override
+    {
+        std::fprintf(stderr, "%s (%u): BGFX fatal: %s\n", file_path ? file_path : "<unknown>",
+                     unsigned(line), message ? message : "<no message>");
+        std::abort();
+    }
+
+    void traceVargs(const char* file_path, uint16_t line, const char* format,
+                    va_list args) override
+    {
+        if (!trace_enabled) {
+            return;
+        }
+        std::fprintf(stderr, "%s (%u): BGFX ", file_path ? file_path : "<unknown>",
+                     unsigned(line));
+        std::vfprintf(stderr, format ? format : "", args);
+    }
+
+    void profilerBegin(const char*, uint32_t, const char*, uint16_t) override {}
+    void profilerBeginLiteral(const char*, uint32_t, const char*, uint16_t) override {}
+    void profilerEnd() override {}
+    uint32_t cacheReadSize(uint64_t) override { return 0; }
+    bool cacheRead(uint64_t, void*, uint32_t) override { return false; }
+    void cacheWrite(uint64_t, const void*, uint32_t) override {}
+    void screenShot(const char*, uint32_t, uint32_t, uint32_t, const void*, uint32_t,
+                    bool) override
+    {
+    }
+    void captureBegin(uint32_t, uint32_t, uint32_t, bgfx::TextureFormat::Enum, bool) override {}
+    void captureEnd() override {}
+    void captureFrame(const void*, uint32_t) override {}
+
+private:
+    bool trace_enabled = false;
+};
 
 class SampleShaderProvider final : public rmlui_bgfx::ShaderProvider {
 public:
@@ -398,12 +444,16 @@ bool Backend::Initialize(const char* window_name, int width, int height, bool al
 
     const rmlui_bgfx::SurfaceMetrics surface = query_surface(window);
 
+    static SampleBgfxCallback bgfx_callback(env_flag_enabled("RMLUI_BGFX_BGFX_DEBUG"));
+
     bgfx::Init init;
     init.type = bgfx::RendererType::OpenGL;
+    init.callback = &bgfx_callback;
     init.platformData = platform_data;
     init.resolution.width = static_cast<std::uint32_t>(surface.framebuffer_width);
     init.resolution.height = static_cast<std::uint32_t>(surface.framebuffer_height);
     init.resolution.reset = BGFX_RESET_VSYNC;
+    init.debug = env_flag_enabled("RMLUI_BGFX_BGFX_DEBUG");
 
     if (!bgfx::init(init)) {
         Rml::Log::Message(Rml::Log::LT_ERROR, "bgfx::init failed");
@@ -412,7 +462,7 @@ bool Backend::Initialize(const char* window_name, int width, int height, bool al
         return false;
     }
 
-    bgfx::setDebug(BGFX_DEBUG_TEXT);
+    bgfx::setDebug(env_flag_enabled("RMLUI_BGFX_BGFX_DEBUG") ? BGFX_DEBUG_TEXT : BGFX_DEBUG_NONE);
 
     data = Rml::MakeUnique<BackendData>(window);
     data->bgfx_initialized = true;

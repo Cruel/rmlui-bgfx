@@ -1,0 +1,28 @@
+<rml>
+<head>
+<link type="text/rcss" href="common.rcss"/>
+<title>Effects Probe 26</title>
+<style>
+.panel { display: block; box-sizing: border-box; margin: 30dp auto; width: 858dp; height: 560dp; overflow: auto; background: #a4b6b7; padding: 24dp; border-color: #d9eeee; }
+.content { display: block; width: 810dp; height: 1050dp; color: #111; filter: opacity(1) sepia(0) grayscale(0) saturate(1) brightness(1) contrast(1) hue-rotate(0deg) invert(0) blur(0px); }
+.box { display: block; width: 280dp; min-width: 280dp; height: 70dp; margin: 10dp auto; padding: 15dp; background: #fff8; border: 2dp #def6f7; border-radius: 30dp 8dp; color: #111; box-sizing: border-box; position: relative; }
+.marker { display: block; width: 810dp; height: 90dp; padding: 26dp; margin: 40dp 0; background: #203044; color: #f5f7ff; border: 2dp #ffffff; }
+.boxshadow_trail { box-shadow: #f66 30dp 30dp 0 0, #c88 60dp 60dp 0 0, #baa 90dp 90dp 0 0, #ffac 0 0 .8em 8dp inset; margin-bottom: 100px; filter: opacity(1); }
+.right { margin-left: auto; margin-right: 30dp; }
+</style>
+</head>
+<body>
+<h1>Effects Probe 26 - trail shadow filtered</h1>
+<p>Only the full-sample trail box-shadow inside the no-op filtered wrapper.</p>
+<div class="panel">
+<div class="content">
+<div class="marker">top marker</div>
+<div class="box right boxshadow_trail">01 trail shadow</div>
+<div class="box">02 following plain row</div>
+<div class="marker">mid marker</div>
+<div class="box right">03 plain right</div>
+<div class="marker">bottom marker</div>
+</div>
+</div>
+</body>
+</rml>

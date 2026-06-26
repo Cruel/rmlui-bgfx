@@ -1,0 +1,34 @@
+<rml>
+<head>
+<link type="text/rcss" href="common.rcss"/>
+<title>Effects Probe 18</title>
+<style>
+.panel { display: block; box-sizing: border-box; margin: 30dp auto; width: 858dp; height: 560dp; overflow: auto; background: #a4b6b7; padding: 24dp; border-color: #d9eeee; }
+.content { display: block; width: 810dp; height: 1280dp; color: #111; filter: opacity(1) blur(4px); }
+.box { display: block; width: 280dp; min-width: 280dp; height: 70dp; margin: 26dp auto; padding: 15dp; background: #f5f7f8; border: 2dp #def6f7; border-radius: 30dp 8dp; color: #111; box-sizing: border-box; }
+.left { margin-left: 30dp; margin-right: 0; }
+.right { margin-left: auto; margin-right: 30dp; }
+.marker { display: block; width: 810dp; height: 90dp; padding: 26dp; margin: 40dp 0; background: #203044; color: #f5f7ff; border: 2dp #ffffff; }
+</style>
+</head>
+<body>
+<h1>Effects Probe 18 - outer blur scroll</h1>
+<p>The whole scrolling content layer has a real blur filter.</p>
+<div class="panel">
+<div class="content">
+<div class="marker">top marker under outer blur</div>
+<div class="box left">01 left</div>
+<div class="box">02 center</div>
+<div class="box right">03 right</div>
+<div class="marker">mid marker under outer blur</div>
+<div class="box left">04 left</div>
+<div class="box">05 center</div>
+<div class="box right">06 right</div>
+<div class="box left">07 left</div>
+<div class="box">08 center</div>
+<div class="box right">09 right</div>
+<div class="marker">bottom marker under outer blur</div>
+</div>
+</div>
+</body>
+</rml>
