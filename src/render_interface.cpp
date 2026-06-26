@@ -682,6 +682,27 @@ struct RenderInterface::Impl {
     RenderBounds choose_materialized_layer_bounds(const LayerRecord& layer,
                                                   std::optional<FbRect> required_bounds) const
     {
+        FbRect saved_texture_bounds{};
+        for (const RecordedDrawCommand& command : layer.commands) {
+            const auto texture_it = textures.find(command.texture);
+            if (texture_it == textures.end() ||
+                texture_it->second.ownership != TextureOwnership::SavedLayer) {
+                continue;
+            }
+            const auto command_bounds =
+                command_fb_bounds(command.geometry, command.translation, ScissorState{},
+                                  command.transform_valid, command.transform);
+            if (command_bounds && !is_empty(*command_bounds)) {
+                saved_texture_bounds = is_empty(saved_texture_bounds)
+                                           ? *command_bounds
+                                           : union_rects(saved_texture_bounds, *command_bounds);
+            }
+        }
+        if (!is_empty(saved_texture_bounds)) {
+            // Preserve the callback quad's complete coordinate space without paying for a
+            // full-frame target. Parent clipping is still applied when the layer is composited.
+            return bounds_from_framebuffer_rect(saved_texture_bounds);
+        }
         FbRect selected = layer_recorded_content_bounds(layer);
         if (required_bounds && !is_empty(*required_bounds)) {
             const FbRect required =
