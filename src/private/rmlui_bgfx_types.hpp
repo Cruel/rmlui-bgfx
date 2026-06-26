@@ -92,6 +92,7 @@ struct LayerRecord {
     bool content_bounds_inverse_mask_fallback = false;
     int texture_width = 0;
     int texture_height = 0;
+    bool msaa_enabled = false;
     bool clip_mask_enabled = false;
     uint8_t stencil_ref = 1;
     std::vector<size_t> clip_commands;

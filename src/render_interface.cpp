@@ -610,7 +610,8 @@ struct RenderInterface::Impl {
     {
         if (index > uint32_t(LayerPoolPlan::InvalidLayer - 1u))
             return false;
-        return target_cache.ensure_layer_target(uint32_t(index), bounds, depth_stencil_format());
+        return target_cache.ensure_layer_target(uint32_t(index), bounds, depth_stencil_format(),
+                                                reference_msaa_samples);
     }
 
     LayerRecord* layer_for_handle(Rml::LayerHandle handle)
@@ -1093,9 +1094,13 @@ struct RenderInterface::Impl {
 #else
             false;
 #endif
+        const bool layer_msaa_requested = reference_msaa_samples == 2 ||
+                                          reference_msaa_samples == 4 ||
+                                          reference_msaa_samples == 8 ||
+                                          reference_msaa_samples == 16;
         const auto policy = choose_base_presentation_policy(
-            !base_direct_compatibility_enabled, direct_mode_capable, root_requires_preservation,
-            stencil_capable, webgl_feedback_sensitive);
+            !base_direct_compatibility_enabled && !layer_msaa_requested, direct_mode_capable,
+            root_requires_preservation, stencil_capable, webgl_feedback_sensitive);
         direct_base_requested = policy.mode == BasePresentationMode::DirectToBackbuffer;
         direct_base_fallback_reason = policy.fallback_reason;
         if (direct_base_requested) {
@@ -1187,7 +1192,8 @@ struct RenderInterface::Impl {
             *pass, draw_resources(), geometry, *layer,
             BgfxGeometryDrawState{translation, bgfx_texture,
                                   ScissorState{scissor_enabled, scissor_region}, transform_valid,
-                                  transform, layer->clip_mask_enabled, false, stencil_test_state()});
+                                  transform, layer->clip_mask_enabled, layer->msaa_enabled,
+                                  stencil_test_state()});
     }
 
     bool ensure_fullscreen_geometry()
@@ -1357,9 +1363,11 @@ struct RenderInterface::Impl {
             return false;
         perf.add_composite(area(destination_rect), is_full_frame);
 
-        return draw_context.submit_composite(*pass, draw_resources(), op, source_rect,
+        CompositeOp submitted_op = op;
+        submitted_op.msaa_enabled = framebuffer_msaa_enabled(op.destination);
+        return draw_context.submit_composite(*pass, draw_resources(), submitted_op, source_rect,
                                              destination_rect,
-                                             stencil_test_state_for_ref(op.stencil_ref));
+                                             stencil_test_state_for_ref(submitted_op.stencil_ref));
     }
 
     bool copy_region_to_framebuffer(bgfx::TextureHandle source, bgfx::FrameBufferHandle destination,
@@ -1621,7 +1629,7 @@ struct RenderInterface::Impl {
         draw_context.submit_clip_mask(
             *pass, draw_resources(), geometry, *layer,
             BgfxClipMaskDrawState{translation, scissor, command_transform_valid,
-                                  command_transform.data(), false, stencil_state});
+                                  command_transform.data(), layer->msaa_enabled, stencil_state});
     }
 
     void apply_clip_command(const ClipCommand& command, bool record_on_layer)
@@ -1734,8 +1742,8 @@ struct RenderInterface::Impl {
         draw_context.submit_gradient(
             *pass, draw_resources(), shader, geometry, *layer,
             BgfxGradientDrawState{translation, ScissorState{scissor_enabled, scissor_region},
-                                  transform_valid, transform, layer->clip_mask_enabled, false,
-                                  stencil_test_state()});
+                                  transform_valid, transform, layer->clip_mask_enabled,
+                                  layer->msaa_enabled, stencil_test_state()});
     }
 
     void submit_material_shader(const ShaderRecord& shader, const GeometryRecord& geometry,
@@ -1783,6 +1791,7 @@ struct RenderInterface::Impl {
         context.scissor_enabled = scissor_enabled;
         context.local_scissor = local_scissor;
         context.clip_mask_enabled = layer->clip_mask_enabled;
+        context.msaa_enabled = layer->msaa_enabled;
         context.stencil_state = stencil_test_state();
         context.texture = bgfx_texture;
         context.texture_width = texture_width;
@@ -1905,6 +1914,19 @@ struct RenderInterface::Impl {
     // Check whether a texture is the color attachment of a framebuffer we own.
     // WebGL forbids sampling a texture while rendering into a framebuffer whose
     // color attachment is that same texture (GL_INVALID_OPERATION feedback loop).
+    bool framebuffer_msaa_enabled(bgfx::FrameBufferHandle framebuffer) const
+    {
+        if (!bgfx::isValid(framebuffer)) {
+            return false;
+        }
+        for (const LayerRecord& layer : layers) {
+            if (bgfx::isValid(layer.framebuffer) && layer.framebuffer.idx == framebuffer.idx) {
+                return layer.msaa_enabled;
+            }
+        }
+        return false;
+    }
+
     bool texture_attached_to_framebuffer(bgfx::TextureHandle texture,
                                          bgfx::FrameBufferHandle framebuffer) const
     {

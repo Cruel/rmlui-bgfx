@@ -39,7 +39,8 @@ public:
 
     [[nodiscard]] LayerRecord& prepare_virtual_layer_slot(uint32_t slot);
     [[nodiscard]] bool ensure_layer_target(uint32_t slot, const RenderBounds& bounds,
-                                           bgfx::TextureFormat::Enum stencil_format);
+                                           bgfx::TextureFormat::Enum stencil_format,
+                                           uint8_t msaa_samples);
     [[nodiscard]] LayerRecord* layer(uint32_t slot);
     [[nodiscard]] const LayerRecord* layer(uint32_t slot) const;
 

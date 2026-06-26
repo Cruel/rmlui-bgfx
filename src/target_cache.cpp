@@ -106,15 +106,42 @@ void BgfxTargetCache::resize(const SurfaceMetrics&)
 }
 
 bool BgfxTargetCache::ensure_layer_target(uint32_t slot, const RenderBounds& bounds,
-                                          bgfx::TextureFormat::Enum stencil_format)
+                                          bgfx::TextureFormat::Enum stencil_format,
+                                          uint8_t msaa_samples)
 {
+    uint64_t msaa_flag = 0;
+    switch (msaa_samples) {
+    case 2:
+        msaa_flag = BGFX_TEXTURE_RT_MSAA_X2;
+        break;
+    case 4:
+        msaa_flag = BGFX_TEXTURE_RT_MSAA_X4;
+        break;
+    case 8:
+        msaa_flag = BGFX_TEXTURE_RT_MSAA_X8;
+        break;
+    case 16:
+        msaa_flag = BGFX_TEXTURE_RT_MSAA_X16;
+        break;
+    default:
+        break;
+    }
+    const uint64_t msaa_color_flags =
+        BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP | msaa_flag;
+    const uint64_t msaa_depth_flags = BGFX_TEXTURE_RT_WRITE_ONLY | msaa_flag;
+    const bool requested_msaa = msaa_flag != 0 &&
+                                bgfx::isTextureValid(0, false, 1, bgfx::TextureFormat::RGBA8,
+                                                     msaa_color_flags) &&
+                                bgfx::isTextureValid(0, false, 1, stencil_format,
+                                                     msaa_depth_flags);
     LayerRecord& layer_record = prepare_virtual_layer_slot(slot);
     if (m_perf) {
         m_perf->update_layer_max(uint32_t(bounds.framebuffer.w), uint32_t(bounds.framebuffer.h));
     }
     if (bgfx::isValid(layer_record.framebuffer) &&
         layer_record.texture_width == bounds.framebuffer.w &&
-        layer_record.texture_height == bounds.framebuffer.h) {
+        layer_record.texture_height == bounds.framebuffer.h &&
+        layer_record.msaa_enabled == requested_msaa) {
         layer_record.bounds = bounds;
         layer_record.materialized = true;
         bx::mtxOrtho(layer_record.projection, bounds.logical.x, bounds.logical.x + bounds.logical.w,
@@ -144,8 +171,12 @@ bool BgfxTargetCache::ensure_layer_target(uint32_t slot, const RenderBounds& bou
     std::vector<RecordedDrawCommand> saved_commands = std::move(layer_record.commands);
     destroy_layer(layer_record);
 
-    constexpr uint64_t color_flags = BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP;
-    constexpr uint64_t depth_flags = BGFX_TEXTURE_RT_WRITE_ONLY;
+    const uint64_t color_flags = requested_msaa
+                                     ? msaa_color_flags
+                                     : (BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP |
+                                        BGFX_SAMPLER_V_CLAMP);
+    const uint64_t depth_flags = requested_msaa ? msaa_depth_flags
+                                                : BGFX_TEXTURE_RT_WRITE_ONLY;
     if (stencil_format == bgfx::TextureFormat::Unknown) {
         std::fprintf(stderr, "[rmlui] advanced renderer requires a stencil-capable render "
                              "target; D24S8 is unavailable\n");
@@ -189,6 +220,7 @@ bool BgfxTargetCache::ensure_layer_target(uint32_t slot, const RenderBounds& bou
     layer_record.content_bounds_inverse_mask_fallback = saved_content_bounds_inverse_mask_fallback;
     layer_record.texture_width = bounds.framebuffer.w;
     layer_record.texture_height = bounds.framebuffer.h;
+    layer_record.msaa_enabled = requested_msaa;
     layer_record.clip_mask_enabled = saved_clip_mask_enabled;
     layer_record.stencil_ref = saved_stencil_ref;
     layer_record.clip_commands = std::move(saved_clip_commands);
