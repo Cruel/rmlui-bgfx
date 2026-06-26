@@ -69,7 +69,7 @@ namespace {
 {
     const char* value = std::getenv("RMLUI_BGFX_RENDER_PATH");
     if (!value) {
-        return rmlui_bgfx::RenderPath::Reference;
+        return rmlui_bgfx::RenderPath::Optimized;
     }
     const std::string_view mode(value);
     if (mode == "optimized" || mode == "bounded" || mode == "fast") {
@@ -79,9 +79,9 @@ namespace {
         mode == "compatible" || mode == "compat") {
         return rmlui_bgfx::RenderPath::Reference;
     }
-    std::fprintf(stderr, "[rmlui-bgfx] unknown RMLUI_BGFX_RENDER_PATH='%s'; using reference\n",
+    std::fprintf(stderr, "[rmlui-bgfx] unknown RMLUI_BGFX_RENDER_PATH='%s'; using optimized\n",
                  value);
-    return rmlui_bgfx::RenderPath::Reference;
+    return rmlui_bgfx::RenderPath::Optimized;
 }
 
 [[nodiscard]] rmlui_bgfx::BlurSampleBoundsMode blur_sample_bounds_mode_from_env()

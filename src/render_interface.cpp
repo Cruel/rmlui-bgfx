@@ -1931,7 +1931,7 @@ struct RenderInterface::Impl {
     const char* direct_base_fallback_reason = nullptr;
     const char* logged_base_fallback_reason = nullptr;
     bool base_direct_compatibility_enabled = false;
-    RenderPath render_path = RenderPath::Reference;
+    RenderPath render_path = RenderPath::Optimized;
     BlurSampleBoundsMode blur_sample_bounds_mode = BlurSampleBoundsMode::SourceBounds;
     uint8_t reference_msaa_samples = 2;
     bool trace_filter_pipeline = false;
