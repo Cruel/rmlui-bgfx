@@ -113,8 +113,7 @@ void composite_layers_optimized(BgfxLayerSystem& layer_system, const BgfxLayerCo
                 clamp_scissor_to_surface(ctx.scissor_state.region, ctx.surface);
             source_required = {scissor.Left(), scissor.Top(), scissor.Width(), scissor.Height()};
         } else {
-            source_required = {0, 0, ctx.surface.framebuffer_width,
-                               ctx.surface.framebuffer_height};
+            source_required = {0, 0, ctx.surface.framebuffer_width, ctx.surface.framebuffer_height};
         }
     }
     const FilterExpansion expansion =
@@ -125,8 +124,8 @@ void composite_layers_optimized(BgfxLayerSystem& layer_system, const BgfxLayerCo
             align_outward_for_render_target(expand_bounds(source_required, expansion)),
             ctx.surface);
     } else if (has_filter_contract) {
-        source_required = clamp_to_surface(align_outward_for_render_target(source_required),
-                                           ctx.surface);
+        source_required =
+            clamp_to_surface(align_outward_for_render_target(source_required), ctx.surface);
     }
     bool source_required_is_root_transform_scissor = false;
     if (has_effective_filters && source_layer->push_transform_valid && ctx.scissor_state.enabled &&
@@ -144,8 +143,10 @@ void composite_layers_optimized(BgfxLayerSystem& layer_system, const BgfxLayerCo
                       has_effective_filters ? filters
                                             : Rml::Span<const Rml::CompiledFilterHandle>());
 
+    const bool source_was_materialized = source_layer->materialized;
     const GlobalFbRect saved_source_valid = source_layer->valid_content_bounds;
     const bool saved_source_has_valid = source_layer->has_valid_content_bounds;
+    const bool source_recorded_is_complete = !source_was_materialized;
     if (source_required_is_root_transform_scissor) {
         // The reference renderer composites filtered transformed layers from the current save/work
         // rectangle, not from the union of all recorded transformed decorator geometry. Restrict
@@ -186,10 +187,14 @@ void composite_layers_optimized(BgfxLayerSystem& layer_system, const BgfxLayerCo
     // the materialized layer rectangle as the source image contract: generated callback textures
     // such as inset box-shadow depend on transparent margins inside the layer, and trimming them
     // shifts the filtered result relative to the geometry that later samples the saved texture.
+    // When the source layer was prematurely materialized (e.g. by SaveLayerAsTexture during
+    // shadow callback rendering), recorded content bounds reflect only pre-materialization
+    // geometry. Use the full materialized layer bounds so directly-rendered shadows and sibling
+    // elements are included in the composite.
     const FbRect source_valid_global =
         has_filter_contract
             ? source_required
-            : (source_layer->has_valid_content_bounds
+            : (source_recorded_is_complete && source_layer->has_valid_content_bounds
                    ? intersect(source_layer->valid_content_bounds, source_layer->bounds.framebuffer)
                    : source_layer->bounds.framebuffer);
     const RenderBounds filter_source_bounds =
@@ -235,10 +240,10 @@ void composite_layers_optimized(BgfxLayerSystem& layer_system, const BgfxLayerCo
         }
         const FilterApplyResult filtered = ctx.filter_pipeline->apply(
             source_filter_context,
-            subregion(make_layer_texture_region(scratch->color, source_layer->bounds.framebuffer,
-                                                LocalFbRect{0, 0, scratch->texture_width,
-                                                            scratch->texture_height},
-                                                scratch->texture_width, scratch->texture_height),
+            subregion(make_layer_texture_region(
+                          scratch->color, source_layer->bounds.framebuffer,
+                          LocalFbRect{0, 0, scratch->texture_width, scratch->texture_height},
+                          scratch->texture_width, scratch->texture_height),
                       source_valid_global),
             filter_source_bounds,
             has_effective_filters ? filters : Rml::Span<const Rml::CompiledFilterHandle>());
@@ -327,11 +332,20 @@ void composite_layers_optimized(BgfxLayerSystem& layer_system, const BgfxLayerCo
         std::fprintf(stderr, "\n");
     }
 
-    if (!ctx.materialize_layer(destination, filtered.output_bounds.framebuffer)) {
-        if (ctx.fail_frame) {
-            ctx.fail_frame("CompositeLayers failed to materialize destination layer");
+    {
+        LayerRecord* dst = layer_system.layer_for_handle(destination);
+        if (!dst) {
+            dst =
+                layer_system.materialized_layer_for_handle(destination, ctx.direct_base_requested);
         }
-        return;
+        const FbRect dst_bounds =
+            dst ? dst->bounds.framebuffer : filtered.output_bounds.framebuffer;
+        if (!ctx.materialize_layer(destination, dst_bounds)) {
+            if (ctx.fail_frame) {
+                ctx.fail_frame("CompositeLayers failed to materialize destination layer");
+            }
+            return;
+        }
     }
     destination_layer =
         layer_system.materialized_layer_for_handle(destination, ctx.direct_base_requested);
