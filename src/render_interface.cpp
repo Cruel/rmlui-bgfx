@@ -682,6 +682,15 @@ struct RenderInterface::Impl {
     RenderBounds choose_materialized_layer_bounds(const LayerRecord& layer,
                                                   std::optional<FbRect> required_bounds) const
     {
+        const bool has_recorded_transform =
+            std::any_of(layer.commands.begin(), layer.commands.end(),
+                        [](const RecordedDrawCommand& command) { return command.transform_valid; });
+        if (layer.push_transform_valid || has_recorded_transform) {
+            // Transforms are evaluated in render space after virtual-layer recording. A bounded
+            // target changes that coordinate space unless every draw and clip is rebased to the
+            // target origin, so retain the reference renderer's full-frame contract for now.
+            return bounds_from_framebuffer_rect({0, 0, width, height});
+        }
         FbRect saved_texture_bounds{};
         for (const RecordedDrawCommand& command : layer.commands) {
             const auto texture_it = textures.find(command.texture);

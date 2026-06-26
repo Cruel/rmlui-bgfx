@@ -323,14 +323,15 @@ BgfxLayerSystem::save_layer_as_mask_image(const BgfxLayerSaveMaskContext& ctx)
         }
         return 0;
     }
-    FbRect mask_global_bounds{0, 0, ctx.surface.framebuffer_width, ctx.surface.framebuffer_height};
-    if (ctx.current_save_bounds) {
-        const Rml::Rectanglei save_bounds = ctx.current_save_bounds();
-        mask_global_bounds = {save_bounds.Left(), save_bounds.Top(), save_bounds.Width(),
-                              save_bounds.Height()};
-    }
-    mask_global_bounds =
-        clamp_to_surface(align_outward_for_render_target(mask_global_bounds), ctx.surface);
+    // RmlUi's GL3 backend saves mask-image layers over the full layer surface, not over the
+    // current scissor rectangle. During mask-image rendering, RmlUi may leave the active scissor
+    // empty after clipping setup even though the temporary mask layer contains valid commands.
+    // Using SaveLayerAsTexture-style scissor bounds here makes the mask compile to a zero handle
+    // and drops the masked element in the optimized path.
+    FbRect mask_global_bounds = clamp_to_surface(
+        align_outward_for_render_target(
+            FbRect{0, 0, ctx.surface.framebuffer_width, ctx.surface.framebuffer_height}),
+        ctx.surface);
     if (is_empty(mask_global_bounds)) {
         return 0;
     }
