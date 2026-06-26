@@ -188,11 +188,13 @@ private:
     [[nodiscard]] uint32_t stencil_replace_state(uint8_t value) const;
     [[nodiscard]] uint32_t stencil_intersect_state(uint8_t previous_ref) const;
     [[nodiscard]] uint32_t stencil_decrement_state(uint8_t ref) const;
-    [[nodiscard]] FbRect clip_work_bounds(const ReferenceLayer& layer, const ScissorState& scissor) const;
+    [[nodiscard]] FbRect clip_work_bounds(const ReferenceLayer& layer,
+                                          const ScissorState& scissor) const;
     void clear_active_stencil(uint8_t value, const ScissorState& scissor);
     void submit_clip_mask(const GeometryRecord& geometry, Rml::Vector2f translation,
                           uint32_t stencil_state, const ScissorState& scissor,
-                          bool command_transform_valid, const std::array<float, 16>& command_transform);
+                          bool command_transform_valid,
+                          const std::array<float, 16>& command_transform);
     void apply_clip_command(const ReferenceClipCommand& command, bool record_on_layer);
     void replay_clip_commands(Rml::LayerHandle layer, const std::vector<size_t>& commands);
 
@@ -211,18 +213,17 @@ private:
                                         RmlUiPassKind kind, RmlUiPassReason reason,
                                         const char* name, FbRect destination_rect,
                                         CompositeFilterState filter = {});
-    [[nodiscard]] ReferenceTextureRegion apply_filters(
-        ReferenceTextureRegion source, Rml::Span<const Rml::CompiledFilterHandle> filters,
-        CompositeFilterState* composite_filter);
+    [[nodiscard]] ReferenceTextureRegion
+    apply_filters(ReferenceTextureRegion source, Rml::Span<const Rml::CompiledFilterHandle> filters,
+                  CompositeFilterState* composite_filter);
 
     [[nodiscard]] bool fullscreen_postprocess(bgfx::TextureHandle source,
-                                              const ReferenceTarget& destination,
-                                              const char* name, RmlUiPassReason reason,
+                                              const ReferenceTarget& destination, const char* name,
+                                              RmlUiPassReason reason,
                                               const std::function<bool(const RmlUiPass&)>& submit);
     [[nodiscard]] bgfx::TextureHandle copy_region_to_texture(bgfx::TextureHandle source,
                                                              Rml::Rectanglei region,
-                                                             int source_width,
-                                                             int source_height,
+                                                             int source_width, int source_height,
                                                              const char* name, bool flip_y);
     [[nodiscard]] Rml::Rectanglei current_save_bounds() const;
 

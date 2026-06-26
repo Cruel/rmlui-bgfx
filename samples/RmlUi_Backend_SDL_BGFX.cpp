@@ -75,12 +75,11 @@ namespace {
     if (mode == "optimized" || mode == "bounded" || mode == "fast") {
         return rmlui_bgfx::RenderPath::Optimized;
     }
-    if (mode == "reference" || mode == "ref" || mode == "gl3" ||
-        mode == "gl3-compatible" || mode == "compatible" || mode == "compat") {
+    if (mode == "reference" || mode == "ref" || mode == "gl3" || mode == "gl3-compatible" ||
+        mode == "compatible" || mode == "compat") {
         return rmlui_bgfx::RenderPath::Reference;
     }
-    std::fprintf(stderr,
-                 "[rmlui-bgfx] unknown RMLUI_BGFX_RENDER_PATH='%s'; using reference\n",
+    std::fprintf(stderr, "[rmlui-bgfx] unknown RMLUI_BGFX_RENDER_PATH='%s'; using reference\n",
                  value);
     return rmlui_bgfx::RenderPath::Reference;
 }
@@ -101,9 +100,8 @@ namespace {
 [[nodiscard]] bool env_flag_enabled(const char* name)
 {
     const char* value = std::getenv(name);
-    return value && (value[0] == '1' || value[0] == 't' || value[0] == 'T' ||
-                     value[0] == 'y' || value[0] == 'Y' || value[0] == 'o' ||
-                     value[0] == 'O');
+    return value && (value[0] == '1' || value[0] == 't' || value[0] == 'T' || value[0] == 'y' ||
+                     value[0] == 'Y' || value[0] == 'o' || value[0] == 'O');
 }
 
 [[nodiscard]] bool trace_filter_pipeline_from_env()
@@ -126,8 +124,7 @@ namespace {
     case 16:
         return uint8_t(samples);
     default:
-        std::fprintf(stderr,
-                     "[rmlui-bgfx] unknown RMLUI_BGFX_REFERENCE_MSAA='%s'; using 2\n",
+        std::fprintf(stderr, "[rmlui-bgfx] unknown RMLUI_BGFX_REFERENCE_MSAA='%s'; using 2\n",
                      value);
         return 2;
     }
@@ -179,21 +176,20 @@ class SampleBgfxCallback final : public bgfx::CallbackI {
 public:
     explicit SampleBgfxCallback(bool in_trace_enabled) : trace_enabled(in_trace_enabled) {}
 
-    void fatal(const char* file_path, uint16_t line, bgfx::Fatal::Enum, const char* message) override
+    void fatal(const char* file_path, uint16_t line, bgfx::Fatal::Enum,
+               const char* message) override
     {
         std::fprintf(stderr, "%s (%u): BGFX fatal: %s\n", file_path ? file_path : "<unknown>",
                      unsigned(line), message ? message : "<no message>");
         std::abort();
     }
 
-    void traceVargs(const char* file_path, uint16_t line, const char* format,
-                    va_list args) override
+    void traceVargs(const char* file_path, uint16_t line, const char* format, va_list args) override
     {
         if (!trace_enabled) {
             return;
         }
-        std::fprintf(stderr, "%s (%u): BGFX ", file_path ? file_path : "<unknown>",
-                     unsigned(line));
+        std::fprintf(stderr, "%s (%u): BGFX ", file_path ? file_path : "<unknown>", unsigned(line));
         std::vfprintf(stderr, format ? format : "", args);
     }
 
@@ -203,8 +199,7 @@ public:
     uint32_t cacheReadSize(uint64_t) override { return 0; }
     bool cacheRead(uint64_t, void*, uint32_t) override { return false; }
     void cacheWrite(uint64_t, const void*, uint32_t) override {}
-    void screenShot(const char*, uint32_t, uint32_t, uint32_t, const void*, uint32_t,
-                    bool) override
+    void screenShot(const char*, uint32_t, uint32_t, uint32_t, const void*, uint32_t, bool) override
     {
     }
     void captureBegin(uint32_t, uint32_t, uint32_t, bgfx::TextureFormat::Enum, bool) override {}

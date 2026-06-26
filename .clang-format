@@ -1,0 +1,43 @@
+BasedOnStyle: LLVM
+Language: Cpp
+Standard: c++20
+
+AccessModifierOffset: -4
+AlignAfterOpenBracket: Align
+AlignConsecutiveAssignments: false
+AlignConsecutiveDeclarations: false
+AlignOperands: Align
+AllowShortBlocksOnASingleLine: Empty
+AllowShortCaseLabelsOnASingleLine: false
+AllowShortEnumsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: All
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+BinPackArguments: true
+BinPackParameters: true
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterCaseLabel: false
+  AfterClass: false
+  AfterControlStatement: Never
+  AfterEnum: false
+  AfterFunction: true
+  AfterNamespace: false
+  AfterStruct: false
+  AfterUnion: false
+  BeforeCatch: false
+  BeforeElse: false
+  IndentBraces: false
+ColumnLimit: 100
+DerivePointerAlignment: false
+IndentCaseLabels: false
+IndentWidth: 4
+KeepEmptyLinesAtTheStartOfBlocks: false
+NamespaceIndentation: None
+PointerAlignment: Left
+SortIncludes: false
+SpaceAfterCStyleCast: false
+SpaceAfterTemplateKeyword: false
+SpaceBeforeParens: ControlStatements
+TabWidth: 4
+UseTab: Never

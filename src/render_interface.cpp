@@ -221,8 +221,7 @@ struct RenderInterface::Impl {
     explicit Impl(const RendererConfig& config)
         : shader_provider(config.shaders), textures_provider(config.textures),
           diagnostics(config.diagnostics), material_shader_provider(config.material_shaders),
-          perf_logger(config.perf_logger),
-          render_path(config.render_path),
+          perf_logger(config.perf_logger), render_path(config.render_path),
           blur_sample_bounds_mode(config.blur_sample_bounds_mode),
           reference_msaa_samples(config.reference_msaa_samples),
           trace_filter_pipeline(config.trace_filter_pipeline),
@@ -892,7 +891,8 @@ struct RenderInterface::Impl {
         active_layer = handle;
         if (trace_filter_pipeline) {
             std::fprintf(stderr,
-                         "[rmlui-bgfx][replay] begin layer=%zu commands=%zu bounds=(%d,%d %dx%d) texture=%dx%d clips=%zu\n",
+                         "[rmlui-bgfx][replay] begin layer=%zu commands=%zu bounds=(%d,%d %dx%d) "
+                         "texture=%dx%d clips=%zu\n",
                          size_t(handle), commands.size(), layer->bounds.framebuffer.x,
                          layer->bounds.framebuffer.y, layer->bounds.framebuffer.w,
                          layer->bounds.framebuffer.h, layer->texture_width, layer->texture_height,
@@ -912,19 +912,20 @@ struct RenderInterface::Impl {
             replay_layer->clip_mask_enabled = command.clip_mask_enabled;
             replay_layer->stencil_ref = command.stencil_ref;
             if (trace_filter_pipeline) {
-                const auto bounds = command_fb_bounds(command.geometry, command.translation,
-                                                      command.scissor, command.transform_valid,
-                                                      command.transform);
+                const auto bounds =
+                    command_fb_bounds(command.geometry, command.translation, command.scissor,
+                                      command.transform_valid, command.transform);
                 std::fprintf(stderr,
-                             "[rmlui-bgfx][replay] layer=%zu cmd=%zu kind=%d geom=%zu shader=%zu tex=%zu transform=%d clip=%d ref=%u scissor=%d",
+                             "[rmlui-bgfx][replay] layer=%zu cmd=%zu kind=%d geom=%zu shader=%zu "
+                             "tex=%zu transform=%d clip=%d ref=%u scissor=%d",
                              size_t(handle), command_index, int(command.kind),
-                             size_t(command.geometry), size_t(command.shader), size_t(command.texture),
-                             command.transform_valid ? 1 : 0,
+                             size_t(command.geometry), size_t(command.shader),
+                             size_t(command.texture), command.transform_valid ? 1 : 0,
                              command.clip_mask_enabled ? 1 : 0, unsigned(command.stencil_ref),
                              command.scissor.enabled ? 1 : 0);
                 if (bounds) {
-                    std::fprintf(stderr, " bounds=(%d,%d %dx%d)", bounds->x, bounds->y,
-                                 bounds->w, bounds->h);
+                    std::fprintf(stderr, " bounds=(%d,%d %dx%d)", bounds->x, bounds->y, bounds->w,
+                                 bounds->h);
                 } else {
                     std::fprintf(stderr, " bounds=<fallback>");
                 }
@@ -1094,10 +1095,9 @@ struct RenderInterface::Impl {
 #else
             false;
 #endif
-        const bool layer_msaa_requested = reference_msaa_samples == 2 ||
-                                          reference_msaa_samples == 4 ||
-                                          reference_msaa_samples == 8 ||
-                                          reference_msaa_samples == 16;
+        const bool layer_msaa_requested =
+            reference_msaa_samples == 2 || reference_msaa_samples == 4 ||
+            reference_msaa_samples == 8 || reference_msaa_samples == 16;
         const auto policy = choose_base_presentation_policy(
             !base_direct_compatibility_enabled && !layer_msaa_requested, direct_mode_capable,
             root_requires_preservation, stencil_capable, webgl_feedback_sensitive);
@@ -1398,8 +1398,8 @@ struct RenderInterface::Impl {
         const bool origin_bottom_left = bgfx::getCaps() && bgfx::getCaps()->originBottomLeft;
         if (flip_y && origin_bottom_left && source_height > region.Height()) {
             const int sample_top = source_height - region.Bottom();
-            sample_region = Rml::Rectanglei::FromPositionSize(
-                {region.Left(), sample_top}, {region.Width(), region.Height()});
+            sample_region = Rml::Rectanglei::FromPositionSize({region.Left(), sample_top},
+                                                              {region.Width(), region.Height()});
         }
         const bool can_blit = !flip_y && bgfx::getCaps() &&
                               (bgfx::getCaps()->supported & BGFX_CAPS_TEXTURE_BLIT) != 0;
@@ -1452,20 +1452,21 @@ struct RenderInterface::Impl {
         }
         if (region.Width() == output_dimensions.x && region.Height() == output_dimensions.y &&
             destination_offset.x == 0 && destination_offset.y == 0) {
-            return copy_region_to_texture(source, region, source_width, source_height, name, flip_y);
+            return copy_region_to_texture(source, region, source_width, source_height, name,
+                                          flip_y);
         }
         Rml::Rectanglei sample_region = region;
         const bool origin_bottom_left = bgfx::getCaps() && bgfx::getCaps()->originBottomLeft;
         if (flip_y && origin_bottom_left && source_height > region.Height()) {
             const int sample_top = source_height - region.Bottom();
-            sample_region = Rml::Rectanglei::FromPositionSize(
-                {region.Left(), sample_top}, {region.Width(), region.Height()});
+            sample_region = Rml::Rectanglei::FromPositionSize({region.Left(), sample_top},
+                                                              {region.Width(), region.Height()});
         }
 
         constexpr uint64_t flags = BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP;
         bgfx::TextureHandle texture =
-            bgfx::createTexture2D(uint16_t(output_dimensions.x), uint16_t(output_dimensions.y), false,
-                                  1, bgfx::TextureFormat::RGBA8, flags);
+            bgfx::createTexture2D(uint16_t(output_dimensions.x), uint16_t(output_dimensions.y),
+                                  false, 1, bgfx::TextureFormat::RGBA8, flags);
         if (!bgfx::isValid(texture)) {
             return BGFX_INVALID_HANDLE;
         }
@@ -1475,7 +1476,8 @@ struct RenderInterface::Impl {
             return BGFX_INVALID_HANDLE;
         }
 
-        auto clear_pass = pass_builder.layer_clear(framebuffer, output_dimensions.x, output_dimensions.y);
+        auto clear_pass =
+            pass_builder.layer_clear(framebuffer, output_dimensions.x, output_dimensions.y);
         if (!clear_pass) {
             bgfx::destroy(framebuffer);
             bgfx::destroy(texture);
@@ -1488,8 +1490,8 @@ struct RenderInterface::Impl {
                                       : destination_offset.y;
         const LocalFbRect destination_rect{destination_offset.x, destination_y, region.Width(),
                                            region.Height()};
-        auto pass = pass_builder.composite(framebuffer, destination_rect, RmlUiPassKind::Copy,
-                                           name, copy_pass_reason_from_name(name));
+        auto pass = pass_builder.composite(framebuffer, destination_rect, RmlUiPassKind::Copy, name,
+                                           copy_pass_reason_from_name(name));
         if (!pass) {
             bgfx::destroy(framebuffer);
             bgfx::destroy(texture);
@@ -1619,9 +1621,9 @@ struct RenderInterface::Impl {
         const FbRect work_bounds = clip_work_bounds(layer, scissor);
         if (is_empty(work_bounds))
             return;
-        auto pass = pass_builder.geometry(layer->framebuffer, layer->texture_width,
-                                          layer->texture_height, "RmlUi.ClipMask",
-                                          RmlUiPassReason::ClipMask);
+        auto pass =
+            pass_builder.geometry(layer->framebuffer, layer->texture_width, layer->texture_height,
+                                  "RmlUi.ClipMask", RmlUiPassReason::ClipMask);
         if (!pass)
             return;
         perf.add_clip_mask(uint64_t(work_bounds.w) * uint64_t(work_bounds.h));
@@ -2007,8 +2009,8 @@ void RenderInterface::end_frame()
             m_impl->layer_system.begin_frame();
         }
         if (!m_impl->direct_base_requested) {
-            auto clear_pass = m_impl->pass_builder.base_clear(BGFX_INVALID_HANDLE, m_impl->width,
-                                                              m_impl->height);
+            auto clear_pass =
+                m_impl->pass_builder.base_clear(BGFX_INVALID_HANDLE, m_impl->width, m_impl->height);
             if (clear_pass) {
                 m_impl->perf.add_clear(uint64_t(m_impl->width) * uint64_t(m_impl->height), true);
                 bgfx::touch(clear_pass->view);
@@ -2018,11 +2020,13 @@ void RenderInterface::end_frame()
             }
             if (LayerRecord* base = m_impl->layer_for_handle(0)) {
                 if (!m_impl->composite(make_composite_op(
-                        texture_region(base->color, base->bounds.framebuffer, full_local_rect(*base),
-                                       base->texture_width, base->texture_height),
+                        texture_region(base->color, base->bounds.framebuffer,
+                                       full_local_rect(*base), base->texture_width,
+                                       base->texture_height),
                         BGFX_INVALID_HANDLE, Rml::BlendMode::Blend, ScissorState{false, {}}, false,
                         1, RmlUiPassKind::FinalComposite, RmlUiPassReason::FinalComposite,
-                        "RmlUi.FinalComposite", LocalFbRect{0, 0, m_impl->width, m_impl->height}))) {
+                        "RmlUi.FinalComposite",
+                        LocalFbRect{0, 0, m_impl->width, m_impl->height}))) {
                     m_impl->fail_frame("end_frame final composite failed");
                 }
             }
@@ -2269,7 +2273,8 @@ void RenderInterface::SetTransform(const Rml::Matrix4f* transform)
         m_impl->transform_valid = false;
     }
     if (m_impl->render_path == RenderPath::Reference) {
-        m_impl->reference_renderer.set_transform(m_impl->transform_valid ? m_impl->transform : nullptr);
+        m_impl->reference_renderer.set_transform(m_impl->transform_valid ? m_impl->transform
+                                                                         : nullptr);
     }
 }
 

@@ -44,8 +44,9 @@ public:
     [[nodiscard]] RmlUiMaterialShaderHandle
     compile_decorator_shader(const RmlUiMaterialShaderRequest& request) override;
     void release_decorator_shader(RmlUiMaterialShaderHandle shader) override;
-    [[nodiscard]] bool submit_decorator_shader(
-        RmlUiMaterialShaderHandle shader, const RmlUiMaterialShaderDrawContext& context) override;
+    [[nodiscard]] bool
+    submit_decorator_shader(RmlUiMaterialShaderHandle shader,
+                            const RmlUiMaterialShaderDrawContext& context) override;
 
 private:
     struct ShaderDefinition {

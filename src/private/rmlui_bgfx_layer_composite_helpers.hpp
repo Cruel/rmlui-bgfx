@@ -10,17 +10,17 @@ namespace rmlui_bgfx {
 [[nodiscard]] inline TextureRegion make_layer_texture_region(bgfx::TextureHandle texture,
                                                              GlobalFbRect global_bounds,
                                                              LocalFbRect local_rect,
-                                                             int texture_width,
-                                                             int texture_height)
+                                                             int texture_width, int texture_height)
 {
     return TextureRegion{texture, global_bounds, local_rect, texture_width, texture_height};
 }
 
-[[nodiscard]] inline CompositeOp make_layer_composite_op(
-    TextureRegion source, bgfx::FrameBufferHandle destination, Rml::BlendMode blend_mode,
-    ScissorState scissor, bool apply_destination_stencil, uint8_t stencil_ref,
-    RmlUiPassKind kind, RmlUiPassReason reason, const char* name,
-    LocalFbRect destination_rect = {}, CompositeFilterState filter = {})
+[[nodiscard]] inline CompositeOp
+make_layer_composite_op(TextureRegion source, bgfx::FrameBufferHandle destination,
+                        Rml::BlendMode blend_mode, ScissorState scissor,
+                        bool apply_destination_stencil, uint8_t stencil_ref, RmlUiPassKind kind,
+                        RmlUiPassReason reason, const char* name, LocalFbRect destination_rect = {},
+                        CompositeFilterState filter = {})
 {
     CompositeOp op;
     op.source = source;

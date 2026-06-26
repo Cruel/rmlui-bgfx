@@ -86,7 +86,8 @@ LayerRecord& BgfxLayerSystem::prepare_virtual_child(Rml::LayerHandle handle,
 
     if (const LayerRecord* parent_layer = layer_for_handle(parent)) {
         child.clip_mask_enabled = parent_layer->clip_mask_enabled;
-        child.stencil_ref = parent_layer->clip_mask_enabled ? parent_layer->stencil_ref : uint8_t(1);
+        child.stencil_ref =
+            parent_layer->clip_mask_enabled ? parent_layer->stencil_ref : uint8_t(1);
         if (parent_layer->clip_mask_enabled) {
             child.conservative_mask_bounds = parent_layer->conservative_mask_bounds;
             child.clip_commands = parent_layer->clip_commands;
@@ -267,8 +268,8 @@ Rml::TextureHandle BgfxLayerSystem::save_layer_as_texture(const BgfxLayerSaveTex
         return 0;
     }
     LayerRecord* layer = materialized_layer_for_handle(m_active_layer, ctx.direct_base_requested);
-    if (!layer || !bgfx::isValid(layer->color) || !ctx.copy_region_to_texture ||
-        !ctx.textures || !ctx.texture_counter) {
+    if (!layer || !bgfx::isValid(layer->color) || !ctx.copy_region_to_texture || !ctx.textures ||
+        !ctx.texture_counter) {
         return 0;
     }
     const FbRect local_bounds = local_rect_for_layer(global_bounds, *layer);
@@ -286,10 +287,10 @@ Rml::TextureHandle BgfxLayerSystem::save_layer_as_texture(const BgfxLayerSaveTex
         const FbRect overlap_global = intersect(global_bounds, layer->bounds.framebuffer);
         const Rml::Vector2i destination_offset{overlap_global.x - global_bounds.x,
                                                overlap_global.y - global_bounds.y};
-        texture = ctx.copy_region_to_sized_texture(
-            layer->color, rectangle_from_fb(local_bounds), layer->texture_width,
-            layer->texture_height, output_dimensions, destination_offset,
-            "RmlUi.SaveLayerAsTexture", true);
+        texture = ctx.copy_region_to_sized_texture(layer->color, rectangle_from_fb(local_bounds),
+                                                   layer->texture_width, layer->texture_height,
+                                                   output_dimensions, destination_offset,
+                                                   "RmlUi.SaveLayerAsTexture", true);
     }
     if (!bgfx::isValid(texture)) {
         if (ctx.fail_frame) {
@@ -328,8 +329,8 @@ BgfxLayerSystem::save_layer_as_mask_image(const BgfxLayerSaveMaskContext& ctx)
         mask_global_bounds = {save_bounds.Left(), save_bounds.Top(), save_bounds.Width(),
                               save_bounds.Height()};
     }
-    mask_global_bounds = clamp_to_surface(align_outward_for_render_target(mask_global_bounds),
-                                          ctx.surface);
+    mask_global_bounds =
+        clamp_to_surface(align_outward_for_render_target(mask_global_bounds), ctx.surface);
     if (is_empty(mask_global_bounds)) {
         return 0;
     }
@@ -346,8 +347,8 @@ BgfxLayerSystem::save_layer_as_mask_image(const BgfxLayerSaveMaskContext& ctx)
         return 0;
     }
 
-    RenderTargetRecord* blend_mask = ctx.ensure_target(PostprocessTargetKind::BlendMask,
-                                                       mask_global_bounds);
+    RenderTargetRecord* blend_mask =
+        ctx.ensure_target(PostprocessTargetKind::BlendMask, mask_global_bounds);
     if (!blend_mask || !bgfx::isValid(blend_mask->framebuffer) ||
         !bgfx::isValid(blend_mask->color)) {
         if (ctx.fail_frame) {
@@ -356,9 +357,9 @@ BgfxLayerSystem::save_layer_as_mask_image(const BgfxLayerSaveMaskContext& ctx)
         return 0;
     }
 
-    TextureRegion source = make_layer_texture_region(layer->color, layer->bounds.framebuffer,
-                                                     full_local_rect(*layer), layer->texture_width,
-                                                     layer->texture_height);
+    TextureRegion source =
+        make_layer_texture_region(layer->color, layer->bounds.framebuffer, full_local_rect(*layer),
+                                  layer->texture_width, layer->texture_height);
     source = subregion(source, mask_global_bounds);
     if (is_empty(source.global_bounds) || is_empty(source.local_rect)) {
         return 0;

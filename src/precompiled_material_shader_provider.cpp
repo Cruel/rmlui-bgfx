@@ -78,7 +78,8 @@ PrecompiledMaterialShaderProvider::PrecompiledMaterialShaderProvider(
     PrecompiledMaterialShaderProviderConfig config)
     : m_config(std::move(config))
 {
-    m_sampler = bgfx::createUniform(m_config.sampler_uniform_name.c_str(), bgfx::UniformType::Sampler);
+    m_sampler =
+        bgfx::createUniform(m_config.sampler_uniform_name.c_str(), bgfx::UniformType::Sampler);
     m_params0 = bgfx::createUniform(m_config.params0_uniform_name.c_str(), bgfx::UniformType::Vec4);
     m_params1 = bgfx::createUniform(m_config.params1_uniform_name.c_str(), bgfx::UniformType::Vec4);
 }
@@ -117,7 +118,8 @@ void PrecompiledMaterialShaderProvider::register_shader(std::string name, std::s
 void PrecompiledMaterialShaderProvider::register_shader(std::string name, std::string vertex_path,
                                                         std::string fragment_path)
 {
-    m_definitions[std::move(name)] = ShaderDefinition{std::move(vertex_path), std::move(fragment_path)};
+    m_definitions[std::move(name)] =
+        ShaderDefinition{std::move(vertex_path), std::move(fragment_path)};
 }
 
 void PrecompiledMaterialShaderProvider::set_mouse_position(Rml::Vector2f position, bool valid)
@@ -171,10 +173,9 @@ bool PrecompiledMaterialShaderProvider::submit_decorator_shader(
         if (context.local_scissor.Width() <= 0 || context.local_scissor.Height() <= 0) {
             return false;
         }
-        bgfx::setScissor(uint16_t(context.local_scissor.Left()),
-                         uint16_t(context.local_scissor.Top()),
-                         uint16_t(context.local_scissor.Width()),
-                         uint16_t(context.local_scissor.Height()));
+        bgfx::setScissor(
+            uint16_t(context.local_scissor.Left()), uint16_t(context.local_scissor.Top()),
+            uint16_t(context.local_scissor.Width()), uint16_t(context.local_scissor.Height()));
     }
 
     const float translate[4] = {context.translation.x, context.translation.y, 0.0f, 0.0f};
@@ -223,7 +224,8 @@ PrecompiledMaterialShaderProvider::ensure_program(std::string_view name)
         return nullptr;
     }
 
-    const std::string vertex_path = join_path(m_config.root_directory, definition_it->second.vertex_path);
+    const std::string vertex_path =
+        join_path(m_config.root_directory, definition_it->second.vertex_path);
     const std::string fragment_path =
         join_path(m_config.root_directory, definition_it->second.fragment_path);
     bgfx::ShaderHandle vertex = load_shader(vertex_path);
@@ -287,8 +289,7 @@ void PrecompiledMaterialShaderProvider::warning(std::string_view message) const
     if (m_config.diagnostics) {
         m_config.diagnostics->warning(message);
     } else {
-        std::fprintf(stderr, "[rmlui-bgfx] warning: %.*s\n", int(message.size()),
-                     message.data());
+        std::fprintf(stderr, "[rmlui-bgfx] warning: %.*s\n", int(message.size()), message.data());
     }
 }
 

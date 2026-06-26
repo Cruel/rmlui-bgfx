@@ -35,8 +35,7 @@ constexpr uint32_t kGradientStopLimit = 16;
     return transform_valid && transform ? transform : resources.identity_transform;
 }
 
-[[nodiscard]] std::array<float, 4> postprocess_uv_bounds(LocalFbRect source_rect,
-                                                         int texture_width,
+[[nodiscard]] std::array<float, 4> postprocess_uv_bounds(LocalFbRect source_rect, int texture_width,
                                                          int texture_height)
 {
     std::array<float, 4> bounds{};

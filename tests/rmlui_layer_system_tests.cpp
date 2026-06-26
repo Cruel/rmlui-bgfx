@@ -54,9 +54,7 @@ TEST_CASE("RmlUi saved mask image uses bounded blend mask target")
         materialize_required_bounds = required_bounds;
         return true;
     };
-    ctx.current_save_bounds = [] {
-        return Rml::Rectanglei::FromPositionSize({30, 40}, {20, 15});
-    };
+    ctx.current_save_bounds = [] { return Rml::Rectanglei::FromPositionSize({30, 40}, {20, 15}); };
     ctx.copy_region_to_texture = [](bgfx::TextureHandle, Rml::Rectanglei, int, int, const char*,
                                     bool) { return bgfx::TextureHandle{9}; };
     ctx.ensure_target = [&](PostprocessTargetKind kind, const FbRect& bounds) {
@@ -132,9 +130,7 @@ TEST_CASE("RmlUi saved layer texture materializes requested save bounds")
     BgfxLayerSaveTextureContext ctx;
     ctx.textures = &textures;
     ctx.texture_counter = &texture_counter;
-    ctx.current_save_bounds = [] {
-        return Rml::Rectanglei::FromPositionSize({10, 20}, {100, 80});
-    };
+    ctx.current_save_bounds = [] { return Rml::Rectanglei::FromPositionSize({10, 20}, {100, 80}); };
     ctx.materialize_layer = [&](Rml::LayerHandle, std::optional<FbRect> required_bounds) {
         materialize_required_bounds = required_bounds;
         return true;
@@ -194,25 +190,22 @@ TEST_CASE("RmlUi saved layer texture preserves requested padded bounds")
     BgfxLayerSaveTextureContext ctx;
     ctx.textures = &textures;
     ctx.texture_counter = &texture_counter;
-    ctx.current_save_bounds = [] {
-        return Rml::Rectanglei::FromPositionSize({10, 20}, {100, 80});
-    };
+    ctx.current_save_bounds = [] { return Rml::Rectanglei::FromPositionSize({10, 20}, {100, 80}); };
     ctx.materialize_layer = [](Rml::LayerHandle, std::optional<FbRect>) { return true; };
     ctx.copy_region_to_texture = [&](bgfx::TextureHandle, Rml::Rectanglei, int, int, const char*,
                                      bool) {
         old_copy_called = true;
         return bgfx::TextureHandle{8};
     };
-    ctx.copy_region_to_sized_texture = [&](bgfx::TextureHandle, Rml::Rectanglei region, int, int,
-                                           Rml::Vector2i output_dimensions,
-                                           Rml::Vector2i destination_offset, const char*,
-                                           bool flip_y) {
-        copied_region = region;
-        copied_output_dimensions = output_dimensions;
-        copied_destination_offset = destination_offset;
-        CHECK(flip_y);
-        return bgfx::TextureHandle{9};
-    };
+    ctx.copy_region_to_sized_texture =
+        [&](bgfx::TextureHandle, Rml::Rectanglei region, int, int, Rml::Vector2i output_dimensions,
+            Rml::Vector2i destination_offset, const char*, bool flip_y) {
+            copied_region = region;
+            copied_output_dimensions = output_dimensions;
+            copied_destination_offset = destination_offset;
+            CHECK(flip_y);
+            return bgfx::TextureHandle{9};
+        };
 
     const Rml::TextureHandle texture = layer_system.save_layer_as_texture(ctx);
 

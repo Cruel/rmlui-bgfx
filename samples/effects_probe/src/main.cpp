@@ -9,11 +9,11 @@
 #include <string_view>
 
 #if defined RMLUI_PLATFORM_WIN32
-    #include <RmlUi_Include_Windows.h>
+#include <RmlUi_Include_Windows.h>
 #endif
 
 #ifndef RMLUI_BGFX_EFFECTS_PROBE_DATA_DIR
-    #define RMLUI_BGFX_EFFECTS_PROBE_DATA_DIR "samples/effects_probe/data"
+#define RMLUI_BGFX_EFFECTS_PROBE_DATA_DIR "samples/effects_probe/data"
 #endif
 
 namespace {
@@ -42,10 +42,7 @@ public:
         return reinterpret_cast<Rml::FileHandle>(fp);
     }
 
-    void Close(Rml::FileHandle file) override
-    {
-        std::fclose(reinterpret_cast<FILE*>(file));
-    }
+    void Close(Rml::FileHandle file) override { std::fclose(reinterpret_cast<FILE*>(file)); }
 
     size_t Read(void* buffer, size_t size, Rml::FileHandle file) override
     {
@@ -85,22 +82,37 @@ constexpr ProbeCase kCases[] = {
     {"09", "09_scroll_shadow_only.rml", "nested scroller with box shadows only"},
     {"10", "10_scroll_transform_shadow.rml", "nested scroller with transform plus box-shadow"},
     {"11", "11_scroll_transform_filter.rml", "nested scroller with transform plus filter"},
-    {"12", "12_scroll_transform_shadow_filter.rml", "nested scroller with transform plus box-shadow plus filter"},
+    {"12", "12_scroll_transform_shadow_filter.rml",
+     "nested scroller with transform plus box-shadow plus filter"},
     {"13", "13_effects_scroll_baseline.rml", "stripped effects layout with plain scrolling"},
-    {"14", "14_effects_noop_filter_scroll.rml", "effects layout with no-op outer filter and scrolling"},
-    {"15", "15_effects_transform_filter_scroll.rml", "effects layout with transforms plus no-op outer filter"},
-    {"16", "16_effects_shadow_overflow_scroll.rml", "effects layout with box-shadow overflow in filtered wrapper"},
-    {"17", "17_effects_real_filters_scroll.rml", "effects layout with per-item real filters while scrolling"},
-    {"18", "18_effects_outer_blur_scroll.rml", "effects layout with real outer blur while scrolling"},
-    {"19", "19_effects_outer_dropshadow_scroll.rml", "effects layout with real outer drop-shadow while scrolling"},
-    {"20", "20_effects_backdrop_scroll.rml", "effects layout with backdrop-filter window over scrolling content"},
-    {"21", "21_effects_scroll_mid_bottom.rml", "effects layout with explicit mid and bottom scroll markers"},
-    {"22", "22_effects_no_wrapper_filter_control.rml", "effects layout control without the outer wrapper filter"},
-    {"23", "23_effects_stripped_full_slice.rml", "stripped full effects sample slice with scrolling"},
-    {"24", "24_effects_soft_shadow_filtered.rml", "single full-sample blur box-shadow inside filtered wrapper"},
-    {"25", "25_effects_soft_shadow_unfiltered.rml", "single full-sample blur box-shadow without filtered wrapper"},
-    {"26", "26_effects_trail_shadow_filtered.rml", "full-sample trail box-shadow inside filtered wrapper"},
-    {"27", "27_effects_trail_shadow_unfiltered.rml", "full-sample trail box-shadow without filtered wrapper"},
+    {"14", "14_effects_noop_filter_scroll.rml",
+     "effects layout with no-op outer filter and scrolling"},
+    {"15", "15_effects_transform_filter_scroll.rml",
+     "effects layout with transforms plus no-op outer filter"},
+    {"16", "16_effects_shadow_overflow_scroll.rml",
+     "effects layout with box-shadow overflow in filtered wrapper"},
+    {"17", "17_effects_real_filters_scroll.rml",
+     "effects layout with per-item real filters while scrolling"},
+    {"18", "18_effects_outer_blur_scroll.rml",
+     "effects layout with real outer blur while scrolling"},
+    {"19", "19_effects_outer_dropshadow_scroll.rml",
+     "effects layout with real outer drop-shadow while scrolling"},
+    {"20", "20_effects_backdrop_scroll.rml",
+     "effects layout with backdrop-filter window over scrolling content"},
+    {"21", "21_effects_scroll_mid_bottom.rml",
+     "effects layout with explicit mid and bottom scroll markers"},
+    {"22", "22_effects_no_wrapper_filter_control.rml",
+     "effects layout control without the outer wrapper filter"},
+    {"23", "23_effects_stripped_full_slice.rml",
+     "stripped full effects sample slice with scrolling"},
+    {"24", "24_effects_soft_shadow_filtered.rml",
+     "single full-sample blur box-shadow inside filtered wrapper"},
+    {"25", "25_effects_soft_shadow_unfiltered.rml",
+     "single full-sample blur box-shadow without filtered wrapper"},
+    {"26", "26_effects_trail_shadow_filtered.rml",
+     "full-sample trail box-shadow inside filtered wrapper"},
+    {"27", "27_effects_trail_shadow_unfiltered.rml",
+     "full-sample trail box-shadow without filtered wrapper"},
     {"28", "28_effects_soft_shadow_no_transform_filtered.rml",
      "full-sample blur box-shadow without transform inside filtered wrapper"},
     {"29", "29_effects_inset_only.rml", "single inset box-shadow without outer shadows"},
@@ -109,7 +121,8 @@ constexpr ProbeCase kCases[] = {
 
 void print_cases(const char* executable)
 {
-    std::fprintf(stderr, "usage: %s [case]\n", executable ? executable : "rmlui_bgfx_sample_effects_probe");
+    std::fprintf(stderr, "usage: %s [case]\n",
+                 executable ? executable : "rmlui_bgfx_sample_effects_probe");
     for (const ProbeCase& probe_case : kCases) {
         std::fprintf(stderr, "  %.*s  %.*s\n", int(probe_case.key.size()), probe_case.key.data(),
                      int(probe_case.description.size()), probe_case.description.data());

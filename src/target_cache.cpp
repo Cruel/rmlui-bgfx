@@ -126,14 +126,12 @@ bool BgfxTargetCache::ensure_layer_target(uint32_t slot, const RenderBounds& bou
     default:
         break;
     }
-    const uint64_t msaa_color_flags =
-        BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP | msaa_flag;
+    const uint64_t msaa_color_flags = BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP | msaa_flag;
     const uint64_t msaa_depth_flags = BGFX_TEXTURE_RT_WRITE_ONLY | msaa_flag;
-    const bool requested_msaa = msaa_flag != 0 &&
-                                bgfx::isTextureValid(0, false, 1, bgfx::TextureFormat::RGBA8,
-                                                     msaa_color_flags) &&
-                                bgfx::isTextureValid(0, false, 1, stencil_format,
-                                                     msaa_depth_flags);
+    const bool requested_msaa =
+        msaa_flag != 0 &&
+        bgfx::isTextureValid(0, false, 1, bgfx::TextureFormat::RGBA8, msaa_color_flags) &&
+        bgfx::isTextureValid(0, false, 1, stencil_format, msaa_depth_flags);
     LayerRecord& layer_record = prepare_virtual_layer_slot(slot);
     if (m_perf) {
         m_perf->update_layer_max(uint32_t(bounds.framebuffer.w), uint32_t(bounds.framebuffer.h));
@@ -171,12 +169,10 @@ bool BgfxTargetCache::ensure_layer_target(uint32_t slot, const RenderBounds& bou
     std::vector<RecordedDrawCommand> saved_commands = std::move(layer_record.commands);
     destroy_layer(layer_record);
 
-    const uint64_t color_flags = requested_msaa
-                                     ? msaa_color_flags
-                                     : (BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP |
-                                        BGFX_SAMPLER_V_CLAMP);
-    const uint64_t depth_flags = requested_msaa ? msaa_depth_flags
-                                                : BGFX_TEXTURE_RT_WRITE_ONLY;
+    const uint64_t color_flags =
+        requested_msaa ? msaa_color_flags
+                       : (BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
+    const uint64_t depth_flags = requested_msaa ? msaa_depth_flags : BGFX_TEXTURE_RT_WRITE_ONLY;
     if (stencil_format == bgfx::TextureFormat::Unknown) {
         std::fprintf(stderr, "[rmlui] advanced renderer requires a stencil-capable render "
                              "target; D24S8 is unavailable\n");
