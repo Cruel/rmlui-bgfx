@@ -1629,19 +1629,16 @@ struct RenderInterface::Impl {
         auto it = geometries.find(command.geometry);
         if (it == geometries.end())
             return;
-        LayerRecord* active = current_layer();
         std::optional<FbRect> command_bounds =
             command_fb_bounds(command.geometry, command.translation, command.scissor,
                               command.transform_valid, command.transform);
-        std::optional<FbRect> set_clear_bounds = command_bounds;
-        if (record_on_layer && active && active->conservative_mask_bounds.active &&
-            set_clear_bounds) {
-            set_clear_bounds =
-                union_rects(*set_clear_bounds, active->conservative_mask_bounds.bounds);
-        }
         switch (command.operation) {
         case Rml::ClipMaskOperation::Set:
-            clear_active_stencil(0, command.scissor, set_clear_bounds);
+            // Set replaces the active clip region within the current scissor/save bounds. Do not
+            // tighten this clear to the Set geometry bounds: inset box-shadow clipping commonly
+            // follows a SetInverse operation, and stale stencil pixels outside the following Set
+            // geometry can let blurred inset pixels leak past rounded corners.
+            clear_active_stencil(0, command.scissor);
             submit_to_clip_mask(it->second, command.translation, stencil_replace_state(1),
                                 command.scissor, command.transform_valid, command.transform);
             break;

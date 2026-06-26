@@ -86,10 +86,12 @@ LayerRecord& BgfxLayerSystem::prepare_virtual_child(Rml::LayerHandle handle,
 
     if (const LayerRecord* parent_layer = layer_for_handle(parent)) {
         child.clip_mask_enabled = parent_layer->clip_mask_enabled;
-        child.stencil_ref = parent_layer->stencil_ref;
-        child.conservative_mask_bounds = parent_layer->conservative_mask_bounds;
-        child.clip_commands = parent_layer->clip_commands;
-        child.inherited_clip_command_count = child.clip_commands.size();
+        child.stencil_ref = parent_layer->clip_mask_enabled ? parent_layer->stencil_ref : uint8_t(1);
+        if (parent_layer->clip_mask_enabled) {
+            child.conservative_mask_bounds = parent_layer->conservative_mask_bounds;
+            child.clip_commands = parent_layer->clip_commands;
+            child.inherited_clip_command_count = child.clip_commands.size();
+        }
     }
 
     previous = std::move(child);
