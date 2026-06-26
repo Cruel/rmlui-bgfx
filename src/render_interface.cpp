@@ -689,7 +689,12 @@ struct RenderInterface::Impl {
             selected = is_empty(selected) ? required : union_rects(selected, required);
         }
 
-        const FbRect limit = layer_limit_bounds(layer);
+        FbRect limit = layer_limit_bounds(layer);
+        if (required_bounds && !is_empty(*required_bounds)) {
+            const FbRect required =
+                clamp_to_surface(align_outward_for_render_target(*required_bounds), surface);
+            limit = is_empty(limit) ? required : union_rects(limit, required);
+        }
         if (!is_empty(limit) && !is_empty(selected)) {
             selected = intersect(selected, limit);
         }

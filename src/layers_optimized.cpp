@@ -339,7 +339,8 @@ void composite_layers_optimized(BgfxLayerSystem& layer_system, const BgfxLayerCo
                 layer_system.materialized_layer_for_handle(destination, ctx.direct_base_requested);
         }
         const FbRect dst_bounds =
-            dst ? dst->bounds.framebuffer : filtered.output_bounds.framebuffer;
+            dst ? union_rects(dst->bounds.framebuffer, filtered.output_bounds.framebuffer)
+                : filtered.output_bounds.framebuffer;
         if (!ctx.materialize_layer(destination, dst_bounds)) {
             if (ctx.fail_frame) {
                 ctx.fail_frame("CompositeLayers failed to materialize destination layer");
