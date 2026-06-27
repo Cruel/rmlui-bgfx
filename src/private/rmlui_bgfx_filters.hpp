@@ -22,7 +22,7 @@ struct BgfxFilterPipelineContext {
     BgfxDrawContext& draw_context;
     BgfxDrawResources resources;
     PerfCounters& perf;
-    RenderPath render_path = RenderPath::Reference;
+    RenderPath render_path = RenderPath::Optimized;
     BlurSampleBoundsMode blur_sample_bounds_mode = BlurSampleBoundsMode::SourceBounds;
     bool clamp_work_bounds_to_source = false;
     bool trace_filter_pipeline = false;

@@ -65,6 +65,17 @@ void trace_layer_state(const BgfxLayerCompositeContext& ctx, const char* stage,
     std::fprintf(stderr, "\n");
 }
 
+void add_valid_content_bounds(LayerRecord& layer, FbRect bounds)
+{
+    bounds = intersect(bounds, layer.bounds.framebuffer);
+    if (is_empty(bounds)) {
+        return;
+    }
+    layer.valid_content_bounds =
+        layer.has_valid_content_bounds ? union_rects(layer.valid_content_bounds, bounds) : bounds;
+    layer.has_valid_content_bounds = true;
+}
+
 } // namespace
 
 void composite_layers_optimized(BgfxLayerSystem& layer_system, const BgfxLayerCompositeContext& ctx,
@@ -97,7 +108,7 @@ void composite_layers_optimized(BgfxLayerSystem& layer_system, const BgfxLayerCo
     const std::vector<FilterRecord> resolved_filters =
         ctx.filter_pipeline->resolve(ctx.filter_context, filters);
     const bool has_effective_filters = !resolved_filters.empty();
-    const bool has_filter_contract = has_effective_filters;
+    const bool has_filter_contract = !filters.empty();
     if (ctx.scissor_state.enabled) {
         const Rml::Rectanglei scissor =
             clamp_scissor_to_surface(ctx.scissor_state.region, ctx.surface);
@@ -187,16 +198,18 @@ void composite_layers_optimized(BgfxLayerSystem& layer_system, const BgfxLayerCo
     // the materialized layer rectangle as the source image contract: generated callback textures
     // such as inset box-shadow depend on transparent margins inside the layer, and trimming them
     // shifts the filtered result relative to the geometry that later samples the saved texture.
-    // When the source layer was prematurely materialized (e.g. by SaveLayerAsTexture during
-    // shadow callback rendering), recorded content bounds reflect only pre-materialization
-    // geometry. Use the full materialized layer bounds so directly-rendered shadows and sibling
-    // elements are included in the composite.
-    const FbRect source_valid_global =
-        has_filter_contract
-            ? source_required
-            : (source_recorded_is_complete && source_layer->has_valid_content_bounds
-                   ? intersect(source_layer->valid_content_bounds, source_layer->bounds.framebuffer)
-                   : source_layer->bounds.framebuffer);
+    // If a filter property was present, keep the filter/window allocation contract separate from
+    // the actual source pixels. No-op filter chains still need the wider RmlUi layer contract, but
+    // sampling should stay limited to content that can contribute pixels.
+    FbRect source_valid_global =
+        source_recorded_is_complete && source_layer->has_valid_content_bounds
+            ? intersect(source_layer->valid_content_bounds, source_layer->bounds.framebuffer)
+            : source_layer->bounds.framebuffer;
+    if (has_filter_contract) {
+        source_valid_global = source_layer->has_valid_content_bounds
+                                  ? intersect(source_layer->valid_content_bounds, source_required)
+                                  : source_required;
+    }
     const RenderBounds filter_source_bounds =
         source_required_is_root_transform_scissor
             ? RenderBounds{framebuffer_to_logical(source_required, ctx.surface), source_required}
@@ -299,6 +312,7 @@ void composite_layers_optimized(BgfxLayerSystem& layer_system, const BgfxLayerCo
             }
             return;
         }
+        add_valid_content_bounds(*destination_layer, filtered.valid_output_bounds.framebuffer);
         return;
     }
 
@@ -401,6 +415,7 @@ void composite_layers_optimized(BgfxLayerSystem& layer_system, const BgfxLayerCo
         }
         return;
     }
+    add_valid_content_bounds(*destination_layer, filtered.valid_output_bounds.framebuffer);
 }
 
 } // namespace rmlui_bgfx

@@ -171,12 +171,23 @@ bool BgfxLayerSystem::materialize_layer(const BgfxLayerMaterializeContext& ctx,
     if (!layer) {
         return false;
     }
-    if (layer->kind == LayerKind::Root || layer->materialized) {
+    if (layer->kind == LayerKind::Root) {
         return true;
     }
     if (!ctx.choose_bounds || !ctx.ensure_layer || !ctx.clear_layer || !ctx.replay_clip_commands ||
         !ctx.replay_recorded_commands) {
         return false;
+    }
+    if (layer->materialized) {
+        const FbRect current_overlap =
+            required_bounds ? intersect(layer->bounds.framebuffer, *required_bounds) : FbRect{};
+        if (!required_bounds || is_empty(*required_bounds) ||
+            (current_overlap.x == required_bounds->x && current_overlap.y == required_bounds->y &&
+             current_overlap.w == required_bounds->w && current_overlap.h == required_bounds->h)) {
+            return true;
+        }
+        layer->materialized = false;
+        layer->clear_pending = true;
     }
 
     RenderBounds child_bounds = ctx.choose_bounds(*layer, required_bounds);
@@ -328,10 +339,10 @@ BgfxLayerSystem::save_layer_as_mask_image(const BgfxLayerSaveMaskContext& ctx)
     // empty after clipping setup even though the temporary mask layer contains valid commands.
     // Using SaveLayerAsTexture-style scissor bounds here makes the mask compile to a zero handle
     // and drops the masked element in the optimized path.
-    FbRect mask_global_bounds = clamp_to_surface(
-        align_outward_for_render_target(
-            FbRect{0, 0, ctx.surface.framebuffer_width, ctx.surface.framebuffer_height}),
-        ctx.surface);
+    FbRect mask_global_bounds =
+        clamp_to_surface(align_outward_for_render_target(FbRect{0, 0, ctx.surface.framebuffer_width,
+                                                                ctx.surface.framebuffer_height}),
+                         ctx.surface);
     if (is_empty(mask_global_bounds)) {
         return 0;
     }

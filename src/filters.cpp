@@ -142,19 +142,6 @@ void trace_filter_chain(const BgfxFilterPipelineContext& ctx,
            BGFX_STENCIL_OP_FAIL_Z_KEEP | BGFX_STENCIL_OP_PASS_Z_KEEP;
 }
 
-[[nodiscard]] std::array<float, 4> filter_uv_bounds(LocalFbRect rect, int texture_width,
-                                                    int texture_height)
-{
-    auto bounds = uv_rect_for_source_region(rect, texture_width, texture_height);
-    if (bgfx::getCaps() && bgfx::getCaps()->originBottomLeft) {
-        const float top = bounds[1];
-        const float bottom = bounds[3];
-        bounds[1] = 1.0f - bottom;
-        bounds[3] = 1.0f - top;
-    }
-    return bounds;
-}
-
 [[nodiscard]] bool filter_chain_has_drop_shadow(const std::vector<FilterRecord>& filters)
 {
     return std::any_of(filters.begin(), filters.end(), [](const FilterRecord& filter) {
@@ -553,6 +540,12 @@ BgfxFilterPipeline::apply_common(const BgfxFilterPipelineContext& ctx, TextureRe
         trace_rect("destination", copy_destination);
         std::fprintf(stderr, "\n");
     }
+    if (auto clear_pass = ctx.pass_builder.layer_clear(primary->framebuffer, primary->texture_width,
+                                                       primary->texture_height)) {
+        bgfx::touch(clear_pass->view);
+    } else {
+        return {};
+    }
     if (!composite(ctx, make_composite_op(
                             texture_region(source.texture, source_copy_global, source_copy_local,
                                            source.texture_width, source.texture_height),
@@ -623,10 +616,7 @@ BgfxFilterPipeline::apply_common(const BgfxFilterPipelineContext& ctx, TextureRe
         }
         case FilterKind::Blur: {
             const BlurShaderParameters blur = blur_shader_parameters(filter.sigma);
-            const auto bounds = ctx.blur_sample_bounds_mode == BlurSampleBoundsMode::FullTexture
-                                    ? std::array<float, 4>{0.0f, 0.0f, 1.0f, 1.0f}
-                                    : filter_uv_bounds(current_valid_rect, primary->texture_width,
-                                                       primary->texture_height);
+            const std::array<float, 4> bounds{0.0f, 0.0f, 1.0f, 1.0f};
             if (ctx.trace_filter_pipeline) {
                 std::fprintf(
                     stderr,
@@ -638,10 +628,7 @@ BgfxFilterPipeline::apply_common(const BgfxFilterPipelineContext& ctx, TextureRe
                     " current_tex=%u destination_tex=%u bounds=(%.6f,%.6f %.6f,%.6f) mode=%s\n",
                     bgfx::isValid(current) ? current.idx : 65535u,
                     bgfx::isValid(destination->color) ? destination->color.idx : 65535u, bounds[0],
-                    bounds[1], bounds[2], bounds[3],
-                    ctx.blur_sample_bounds_mode == BlurSampleBoundsMode::FullTexture
-                        ? "full-texture"
-                        : "source-bounds");
+                    bounds[1], bounds[2], bounds[3], "initialized-full-texture");
             }
             float params[4] = {0.0f,
                                blur.texel_scale / float(std::max(destination->texture_height, 1)),

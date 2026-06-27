@@ -717,6 +717,11 @@ struct RenderInterface::Impl {
             }
             // Preserve the callback quad's complete coordinate space without paying for a
             // full-frame target. Parent clipping is still applied when the layer is composited.
+            if (required_bounds && !is_empty(*required_bounds)) {
+                const FbRect required =
+                    clamp_to_surface(align_outward_for_render_target(*required_bounds), surface);
+                saved_texture_bounds = union_rects(saved_texture_bounds, required);
+            }
             return bounds_from_framebuffer_rect(saved_texture_bounds);
         }
         FbRect selected = layer_recorded_content_bounds(layer);
@@ -746,15 +751,11 @@ struct RenderInterface::Impl {
         return bounds_from_framebuffer_rect(selected);
     }
 
-    std::optional<FbRect> command_fb_bounds(Rml::CompiledGeometryHandle geometry,
-                                            Rml::Vector2f translation, const ScissorState& state,
-                                            bool command_transform_valid,
-                                            const std::array<float, 16>& command_transform) const
+    std::optional<FbRect> geometry_fb_bounds(const GeometryRecord& geometry,
+                                             Rml::Vector2f translation, const ScissorState& state,
+                                             bool command_transform_valid,
+                                             const std::array<float, 16>& command_transform) const
     {
-        auto it = geometries.find(geometry);
-        if (it == geometries.end())
-            return std::nullopt;
-
         Rml::Matrix4f transform_matrix;
         const Rml::Matrix4f* transform_ptr = nullptr;
         if (command_transform_valid) {
@@ -763,7 +764,7 @@ struct RenderInterface::Impl {
         }
 
         const GeometryBoundsResult geometry_bounds = compute_transformed_geometry_bounds(
-            it->second.local_bounds, translation, transform_ptr, surface);
+            geometry.local_bounds, translation, transform_ptr, surface);
         if (geometry_bounds.status == GeometryBoundsStatus::EmptyGeometry)
             return FbRect{};
         if (geometry_bounds.status != GeometryBoundsStatus::Valid)
@@ -779,13 +780,23 @@ struct RenderInterface::Impl {
         return bounds;
     }
 
-    void add_recorded_region(LayerRecord& layer, const RecordedDrawCommand& command)
+    std::optional<FbRect> command_fb_bounds(Rml::CompiledGeometryHandle geometry,
+                                            Rml::Vector2f translation, const ScissorState& state,
+                                            bool command_transform_valid,
+                                            const std::array<float, 16>& command_transform) const
     {
-        const auto maybe_bounds =
-            command_fb_bounds(command.geometry, command.translation, command.scissor,
-                              command.transform_valid, command.transform);
+        auto it = geometries.find(geometry);
+        if (it == geometries.end())
+            return std::nullopt;
+        return geometry_fb_bounds(it->second, translation, state, command_transform_valid,
+                                  command_transform);
+    }
+
+    void add_layer_content_region(LayerRecord& layer, std::optional<FbRect> maybe_bounds,
+                                  bool bounds_transform_valid, bool clip_mask_enabled)
+    {
         if (!maybe_bounds) {
-            if (command.transform_valid)
+            if (bounds_transform_valid)
                 layer.content_bounds_transform_fallback = true;
             return;
         }
@@ -793,7 +804,7 @@ struct RenderInterface::Impl {
         const FbRect container = layer_limit_bounds(layer);
         if (!is_empty(container))
             bounds = intersect(bounds, container);
-        if (command.clip_mask_enabled)
+        if (clip_mask_enabled)
             bounds = apply_mask_constraints(bounds, nullptr, &layer.conservative_mask_bounds);
         if (is_empty(bounds))
             return;
@@ -801,6 +812,29 @@ struct RenderInterface::Impl {
                                          ? union_rects(layer.valid_content_bounds, bounds)
                                          : bounds;
         layer.has_valid_content_bounds = true;
+    }
+
+    void add_recorded_region(LayerRecord& layer, const RecordedDrawCommand& command)
+    {
+        add_layer_content_region(layer,
+                                 command_fb_bounds(command.geometry, command.translation,
+                                                   command.scissor, command.transform_valid,
+                                                   command.transform),
+                                 command.transform_valid, command.clip_mask_enabled);
+    }
+
+    void add_submitted_region(LayerRecord& layer, const GeometryRecord& geometry,
+                              Rml::Vector2f translation)
+    {
+        const ScissorState scissor{scissor_enabled, scissor_region};
+        std::array<float, 16> active_transform{};
+        if (transform_valid) {
+            std::memcpy(active_transform.data(), transform, sizeof(transform));
+        }
+        add_layer_content_region(
+            layer,
+            geometry_fb_bounds(geometry, translation, scissor, transform_valid, active_transform),
+            transform_valid, layer.clip_mask_enabled);
     }
 
     void update_layer_mask_region(LayerRecord& layer, const ClipCommand& command)
@@ -1236,6 +1270,7 @@ struct RenderInterface::Impl {
                                   ScissorState{scissor_enabled, scissor_region}, transform_valid,
                                   transform, layer->clip_mask_enabled, layer->msaa_enabled,
                                   stencil_test_state()});
+        add_submitted_region(*layer, geometry, translation);
     }
 
     bool ensure_fullscreen_geometry()
@@ -1788,6 +1823,7 @@ struct RenderInterface::Impl {
             BgfxGradientDrawState{translation, ScissorState{scissor_enabled, scissor_region},
                                   transform_valid, transform, layer->clip_mask_enabled,
                                   layer->msaa_enabled, stencil_test_state()});
+        add_submitted_region(*layer, geometry, translation);
     }
 
     void submit_material_shader(const ShaderRecord& shader, const GeometryRecord& geometry,
@@ -1850,6 +1886,7 @@ struct RenderInterface::Impl {
 
         if (material_shader_provider->submit_decorator_shader(shader.material, context)) {
             perf.add_geometry(uint64_t(lw) * uint64_t(lh), geometry.index_count);
+            add_submitted_region(*layer, geometry, translation);
         }
     }
 

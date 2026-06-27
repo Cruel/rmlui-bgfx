@@ -191,7 +191,7 @@ struct RendererConfig {
     PerfLogger* perf_logger = nullptr;
     MaterialShaderProvider* material_shaders = nullptr;
     bool enable_perf_logging = true;
-    RenderPath render_path = RenderPath::Reference;
+    RenderPath render_path = RenderPath::Optimized;
     BlurSampleBoundsMode blur_sample_bounds_mode = BlurSampleBoundsMode::SourceBounds;
     uint8_t reference_msaa_samples = 2;
     bool trace_filter_pipeline = false;

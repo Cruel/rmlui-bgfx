@@ -27,7 +27,7 @@ struct BgfxLayerCompositeContext {
     bool* root_requires_preservation = nullptr;
     SurfaceMetrics surface{};
     ScissorState scissor_state;
-    RenderPath render_path = RenderPath::Reference;
+    RenderPath render_path = RenderPath::Optimized;
     BgfxFilterPipeline* filter_pipeline = nullptr;
     BgfxFilterPipelineContext filter_context;
     std::function<void(const char*)> fail_frame;
