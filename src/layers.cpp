@@ -191,12 +191,6 @@ bool BgfxLayerSystem::materialize_layer(const BgfxLayerMaterializeContext& ctx,
     }
 
     RenderBounds child_bounds = ctx.choose_bounds(*layer, required_bounds);
-    if (required_bounds && required_bounds->x == 0 && required_bounds->y == 0 &&
-        required_bounds->w >= ctx.surface.framebuffer_width &&
-        required_bounds->h >= ctx.surface.framebuffer_height) {
-        child_bounds.framebuffer = *required_bounds;
-        child_bounds.logical = framebuffer_to_logical(child_bounds.framebuffer, ctx.surface);
-    }
     const bool bounded = !is_full_frame_surface(child_bounds.framebuffer, ctx.surface);
     if (!ctx.ensure_layer(size_t(handle), child_bounds)) {
         return false;
@@ -334,20 +328,7 @@ BgfxLayerSystem::save_layer_as_mask_image(const BgfxLayerSaveMaskContext& ctx)
         }
         return 0;
     }
-    // RmlUi's GL3 backend saves mask-image layers over the full layer surface, not over the
-    // current scissor rectangle. During mask-image rendering, RmlUi may leave the active scissor
-    // empty after clipping setup even though the temporary mask layer contains valid commands.
-    // Using SaveLayerAsTexture-style scissor bounds here makes the mask compile to a zero handle
-    // and drops the masked element in the optimized path.
-    FbRect mask_global_bounds =
-        clamp_to_surface(align_outward_for_render_target(FbRect{0, 0, ctx.surface.framebuffer_width,
-                                                                ctx.surface.framebuffer_height}),
-                         ctx.surface);
-    if (is_empty(mask_global_bounds)) {
-        return 0;
-    }
-    if (!ctx.materialize_layer ||
-        !ctx.materialize_layer(m_active_layer, std::optional<FbRect>{mask_global_bounds})) {
+    if (!ctx.materialize_layer || !ctx.materialize_layer(m_active_layer, std::nullopt)) {
         if (ctx.fail_frame) {
             ctx.fail_frame("SaveLayerAsMaskImage failed to materialize layer");
         }
@@ -356,6 +337,11 @@ BgfxLayerSystem::save_layer_as_mask_image(const BgfxLayerSaveMaskContext& ctx)
     LayerRecord* layer = materialized_layer_for_handle(m_active_layer, ctx.direct_base_requested);
     if (!layer || !bgfx::isValid(layer->color) || !ctx.filters || !ctx.filter_counter ||
         !ctx.ensure_target || !ctx.composite) {
+        return 0;
+    }
+    const FbRect mask_global_bounds =
+        clamp_to_surface(align_outward_for_render_target(layer->bounds.framebuffer), ctx.surface);
+    if (is_empty(mask_global_bounds)) {
         return 0;
     }
 

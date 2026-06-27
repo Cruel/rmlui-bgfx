@@ -682,15 +682,6 @@ struct RenderInterface::Impl {
     RenderBounds choose_materialized_layer_bounds(const LayerRecord& layer,
                                                   std::optional<FbRect> required_bounds) const
     {
-        const bool has_recorded_transform =
-            std::any_of(layer.commands.begin(), layer.commands.end(),
-                        [](const RecordedDrawCommand& command) { return command.transform_valid; });
-        if (layer.push_transform_valid || has_recorded_transform) {
-            // Transforms are evaluated in render space after virtual-layer recording. A bounded
-            // target changes that coordinate space unless every draw and clip is rebased to the
-            // target origin, so retain the reference renderer's full-frame contract for now.
-            return bounds_from_framebuffer_rect({0, 0, width, height});
-        }
         FbRect saved_texture_bounds{};
         for (const RecordedDrawCommand& command : layer.commands) {
             const auto texture_it = textures.find(command.texture);
@@ -1074,12 +1065,14 @@ struct RenderInterface::Impl {
                 if (LayerRecord* layer = layer_for_handle(Rml::LayerHandle(handle))) {
                     const bool is_bounded =
                         bounds.framebuffer.w < width || bounds.framebuffer.h < height;
-                    perf.update_child_layer_max(uint32_t(layer->texture_width),
-                                                uint32_t(layer->texture_height));
-                    if (is_bounded) {
-                        perf.add_bounded_child_layer();
-                    } else {
-                        perf.add_full_frame_child_layer();
+                    if (!suppress_child_layer_perf_count) {
+                        perf.update_child_layer_max(uint32_t(layer->texture_width),
+                                                    uint32_t(layer->texture_height));
+                        if (is_bounded) {
+                            perf.add_bounded_child_layer();
+                        } else {
+                            perf.add_full_frame_child_layer();
+                        }
                     }
                 }
                 return true;
@@ -1141,7 +1134,11 @@ struct RenderInterface::Impl {
             &filter_counter,
             [this](const char* message) { fail_frame(message); },
             [this](Rml::LayerHandle handle, std::optional<FbRect> required_bounds) {
-                return materialize_layer(handle, required_bounds);
+                const bool previous = suppress_child_layer_perf_count;
+                suppress_child_layer_perf_count = true;
+                const bool result = materialize_layer(handle, required_bounds);
+                suppress_child_layer_perf_count = previous;
+                return result;
             },
             [this]() { return current_save_bounds(); },
             [this](bgfx::TextureHandle source, Rml::Rectanglei region, int source_width,
@@ -1721,16 +1718,15 @@ struct RenderInterface::Impl {
                               command.transform_valid, command.transform);
         switch (command.operation) {
         case Rml::ClipMaskOperation::Set:
-            // Set replaces the active clip region within the current scissor/save bounds. Do not
-            // tighten this clear to the Set geometry bounds: inset box-shadow clipping commonly
-            // follows a SetInverse operation, and stale stencil pixels outside the following Set
-            // geometry can let blurred inset pixels leak past rounded corners.
-            clear_active_stencil(0, command.scissor);
+            // Clear the stencil only where this clip command can write. The geometry pass will
+            // replace pixels inside the same bounds, so stale stencil outside the command remains
+            // outside the command's own contribution.
+            clear_active_stencil(0, command.scissor, command_bounds);
             submit_to_clip_mask(it->second, command.translation, stencil_replace_state(1),
                                 command.scissor, command.transform_valid, command.transform);
             break;
         case Rml::ClipMaskOperation::SetInverse:
-            clear_active_stencil(1, command.scissor);
+            clear_active_stencil(1, command.scissor, command_bounds);
             submit_to_clip_mask(it->second, command.translation, stencil_replace_state(0),
                                 command.scissor, command.transform_valid, command.transform);
             break;
@@ -1965,6 +1961,7 @@ struct RenderInterface::Impl {
     bool direct_base_requested = false;
     bool direct_base_presented = false;
     bool root_requires_preservation = false;
+    bool suppress_child_layer_perf_count = false;
     const char* direct_base_fallback_reason = nullptr;
     const char* logged_base_fallback_reason = nullptr;
     bool base_direct_compatibility_enabled = false;
@@ -2088,22 +2085,13 @@ void RenderInterface::end_frame()
             m_impl->layer_system.begin_frame();
         }
         if (!m_impl->direct_base_requested) {
-            auto clear_pass =
-                m_impl->pass_builder.base_clear(BGFX_INVALID_HANDLE, m_impl->width, m_impl->height);
-            if (clear_pass) {
-                m_impl->perf.add_clear(uint64_t(m_impl->width) * uint64_t(m_impl->height), true);
-                bgfx::touch(clear_pass->view);
-            } else {
-                m_impl->fail_frame("end_frame backbuffer clear failed");
-                return;
-            }
             if (LayerRecord* base = m_impl->layer_for_handle(0)) {
                 if (!m_impl->composite(make_composite_op(
                         texture_region(base->color, base->bounds.framebuffer,
                                        full_local_rect(*base), base->texture_width,
                                        base->texture_height),
-                        BGFX_INVALID_HANDLE, Rml::BlendMode::Blend, ScissorState{false, {}}, false,
-                        1, RmlUiPassKind::FinalComposite, RmlUiPassReason::FinalComposite,
+                        BGFX_INVALID_HANDLE, Rml::BlendMode::Replace, ScissorState{false, {}},
+                        false, 1, RmlUiPassKind::FinalComposite, RmlUiPassReason::FinalComposite,
                         "RmlUi.FinalComposite",
                         LocalFbRect{0, 0, m_impl->width, m_impl->height}))) {
                     m_impl->fail_frame("end_frame final composite failed");

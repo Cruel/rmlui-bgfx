@@ -8,7 +8,7 @@
 
 using namespace rmlui_bgfx;
 
-TEST_CASE("RmlUi saved mask image uses full-frame blend mask target")
+TEST_CASE("RmlUi saved mask image uses materialized mask bounds")
 {
     BgfxTargetCache target_cache;
     BgfxLayerSystem layer_system(target_cache);
@@ -17,11 +17,11 @@ TEST_CASE("RmlUi saved mask image uses full-frame blend mask target")
     LayerRecord& layer = target_cache.prepare_virtual_layer_slot(1);
     layer.framebuffer = bgfx::FrameBufferHandle{3};
     layer.color = bgfx::TextureHandle{4};
-    layer.bounds = RenderBounds{{0.0f, 0.0f, 200.0f, 200.0f}, {0, 0, 200, 200}};
+    layer.bounds = RenderBounds{{30.0f, 40.0f, 20.0f, 15.0f}, {30, 40, 20, 15}};
     layer.valid_content_bounds = {30, 40, 20, 15};
     layer.has_valid_content_bounds = true;
-    layer.texture_width = 200;
-    layer.texture_height = 200;
+    layer.texture_width = 20;
+    layer.texture_height = 15;
     layer.kind = LayerKind::VirtualChild;
     layer.materialized = true;
 
@@ -37,9 +37,9 @@ TEST_CASE("RmlUi saved mask image uses full-frame blend mask target")
     RenderTargetRecord blend_mask;
     blend_mask.framebuffer = bgfx::FrameBufferHandle{5};
     blend_mask.color = bgfx::TextureHandle{6};
-    blend_mask.bounds = {0, 0, 200, 200};
-    blend_mask.texture_width = 200;
-    blend_mask.texture_height = 200;
+    blend_mask.bounds = {30, 40, 20, 15};
+    blend_mask.texture_width = 20;
+    blend_mask.texture_height = 15;
     blend_mask.kind = PostprocessTargetKind::BlendMask;
     bool composite_called = false;
     CompositeOp composite_op;
@@ -60,6 +60,9 @@ TEST_CASE("RmlUi saved mask image uses full-frame blend mask target")
     ctx.ensure_target = [&](PostprocessTargetKind kind, const FbRect& bounds) {
         requested_target_kind = kind;
         requested_target_bounds = bounds;
+        blend_mask.bounds = bounds;
+        blend_mask.texture_width = bounds.w;
+        blend_mask.texture_height = bounds.h;
         return &blend_mask;
     };
     ctx.composite = [&](const CompositeOp& op) {
@@ -73,32 +76,28 @@ TEST_CASE("RmlUi saved mask image uses full-frame blend mask target")
     CHECK(filter == 12);
     REQUIRE(filters.contains(filter));
     CHECK(textures.empty());
-    REQUIRE(materialize_required_bounds.has_value());
-    CHECK(materialize_required_bounds->x == 0);
-    CHECK(materialize_required_bounds->y == 0);
-    CHECK(materialize_required_bounds->w == 200);
-    CHECK(materialize_required_bounds->h == 200);
+    CHECK_FALSE(materialize_required_bounds.has_value());
     CHECK(requested_target_kind == PostprocessTargetKind::BlendMask);
-    CHECK(requested_target_bounds.x == 0);
-    CHECK(requested_target_bounds.y == 0);
-    CHECK(requested_target_bounds.w == 200);
-    CHECK(requested_target_bounds.h == 200);
+    CHECK(requested_target_bounds.x == 30);
+    CHECK(requested_target_bounds.y == 40);
+    CHECK(requested_target_bounds.w == 20);
+    CHECK(requested_target_bounds.h == 15);
     CHECK(composite_called);
     CHECK(composite_op.source.texture.idx == 4);
     CHECK(composite_op.destination.idx == 5);
     CHECK(composite_op.destination_rect.x == 0);
     CHECK(composite_op.destination_rect.y == 0);
-    CHECK(composite_op.destination_rect.w == 200);
-    CHECK(composite_op.destination_rect.h == 200);
+    CHECK(composite_op.destination_rect.w == 20);
+    CHECK(composite_op.destination_rect.h == 15);
     CHECK(composite_op.blend_mode == Rml::BlendMode::Replace);
 
     const FilterRecord& record = filters.at(filter);
     CHECK(record.kind == FilterKind::MaskImage);
     CHECK(record.resource == 0);
-    CHECK(record.mask_bounds[0] == 0);
-    CHECK(record.mask_bounds[1] == 0);
-    CHECK(record.mask_bounds[2] == 200);
-    CHECK(record.mask_bounds[3] == 200);
+    CHECK(record.mask_bounds[0] == 30);
+    CHECK(record.mask_bounds[1] == 40);
+    CHECK(record.mask_bounds[2] == 20);
+    CHECK(record.mask_bounds[3] == 15);
 
     layer.framebuffer = BGFX_INVALID_HANDLE;
 }

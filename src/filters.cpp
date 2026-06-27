@@ -96,13 +96,6 @@ void trace_filter_chain(const BgfxFilterPipelineContext& ctx,
            rect.h >= surface.framebuffer_height;
 }
 
-[[nodiscard]] bool filter_chain_has_mask_image(const std::vector<FilterRecord>& filter_chain)
-{
-    return std::any_of(filter_chain.begin(), filter_chain.end(), [](const FilterRecord& filter) {
-        return filter.kind == FilterKind::MaskImage;
-    });
-}
-
 [[nodiscard]] FbRect clamp_valid_filter_bounds(FbRect bounds, FbRect allocation_bounds)
 {
     return intersect(bounds, allocation_bounds);
@@ -431,11 +424,7 @@ BgfxFilterPipeline::apply_common(const BgfxFilterPipelineContext& ctx, TextureRe
     const FbRect expanded = expand_bounds(source_valid_global_bounds, total_expansion);
     FbRect clamped_work_bounds =
         clamp_to_surface(align_outward_for_render_target(expanded), ctx.surface);
-    if (filter_chain_has_mask_image(filter_chain)) {
-        // GL3 applies mask-image in full-layer postprocess space. Keeping source and mask in
-        // the same full-frame coordinate system is required for scroll-coupled mask geometry.
-        clamped_work_bounds = {0, 0, ctx.surface.framebuffer_width, ctx.surface.framebuffer_height};
-    } else if (ctx.clamp_work_bounds_to_source) {
+    if (ctx.clamp_work_bounds_to_source) {
         clamped_work_bounds = intersect(clamped_work_bounds, source_bounds.framebuffer);
     }
     if (ctx.trace_filter_pipeline) {
