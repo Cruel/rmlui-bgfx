@@ -424,7 +424,9 @@ BgfxFilterPipeline::apply_common(const BgfxFilterPipelineContext& ctx, TextureRe
     const FbRect expanded = expand_bounds(source_valid_global_bounds, total_expansion);
     FbRect clamped_work_bounds =
         clamp_to_surface(align_outward_for_render_target(expanded), ctx.surface);
-    if (ctx.clamp_work_bounds_to_source) {
+    if (filter_chain.size() == 1 && filter_chain[0].kind == FilterKind::MaskImage) {
+        clamped_work_bounds = source_valid_global_bounds;
+    } else if (ctx.clamp_work_bounds_to_source) {
         clamped_work_bounds = intersect(clamped_work_bounds, source_bounds.framebuffer);
     }
     if (ctx.trace_filter_pipeline) {
