@@ -1,6 +1,7 @@
 #pragma once
 
 #include "rmlui_bgfx_layers.hpp"
+#include "rmlui_bgfx_mapping.hpp"
 
 #include <algorithm>
 #include <optional>
@@ -66,15 +67,7 @@ filter_window_bounds(const BgfxLayerCompositeContext& ctx)
 
 [[nodiscard]] inline TextureRegion subregion(TextureRegion region, FbRect global_bounds)
 {
-    const FbRect clipped = intersect(global_bounds, region.global_bounds);
-    if (is_empty(clipped)) {
-        return {};
-    }
-    region.local_rect = {region.local_rect.x + clipped.x - region.global_bounds.x,
-                         region.local_rect.y + clipped.y - region.global_bounds.y, clipped.w,
-                         clipped.h};
-    region.global_bounds = clipped;
-    return region;
+    return texture_subregion_for_global_rect(region, global_bounds);
 }
 
 } // namespace rmlui_bgfx

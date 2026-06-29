@@ -1,4 +1,5 @@
 #include "rmlui_bgfx_bounds.hpp"
+#include "rmlui_bgfx_mapping.hpp"
 #include "rmlui_bgfx_types.hpp"
 
 #include <catch2/catch_approx.hpp>
@@ -883,6 +884,106 @@ TEST_CASE("RmlUi materialized layer mapping converts between global and local co
     CHECK(full.h == 200);
 }
 
+TEST_CASE("RmlUi global and target-local mapping helpers round trip bounded rectangles")
+{
+    const GlobalFbRect target{120, 80, 300, 200};
+
+    const LocalFbRect interior = local_rect_for_global_rect(GlobalFbRect{150, 100, 50, 40}, target);
+    CHECK(interior.x == 30);
+    CHECK(interior.y == 20);
+    CHECK(interior.w == 50);
+    CHECK(interior.h == 40);
+
+    const GlobalFbRect round_trip = global_rect_for_local_rect(interior, target);
+    CHECK(round_trip.x == 150);
+    CHECK(round_trip.y == 100);
+    CHECK(round_trip.w == 50);
+    CHECK(round_trip.h == 40);
+
+    const LocalFbRect clipped = local_rect_for_global_rect(GlobalFbRect{100, 60, 60, 50}, target);
+    CHECK(clipped.x == 0);
+    CHECK(clipped.y == 0);
+    CHECK(clipped.w == 40);
+    CHECK(clipped.h == 30);
+
+    CHECK(is_empty(local_rect_for_global_rect(GlobalFbRect{0, 0, 20, 20}, target)));
+
+    const GlobalFbRect full_frame{0, 0, 800, 600};
+    const LocalFbRect identity = local_rect_for_global_rect(GlobalFbRect{0, 0, 800, 600}, full_frame);
+    CHECK(identity.x == 0);
+    CHECK(identity.y == 0);
+    CHECK(identity.w == 800);
+    CHECK(identity.h == 600);
+}
+
+TEST_CASE("RmlUi texture region mapping helpers keep global and texture-local rects aligned")
+{
+    TextureRegion source;
+    source.texture = BGFX_INVALID_HANDLE;
+    source.global_bounds = {100, 50, 80, 40};
+    source.local_rect = {10, 20, 80, 40};
+    source.texture_width = 256;
+    source.texture_height = 128;
+
+    const LocalFbRect contained =
+        texture_local_rect_for_global_rect(source, GlobalFbRect{120, 60, 40, 20});
+    CHECK(contained.x == 30);
+    CHECK(contained.y == 30);
+    CHECK(contained.w == 40);
+    CHECK(contained.h == 20);
+
+    const LocalFbRect clipped =
+        texture_local_rect_for_global_rect(source, GlobalFbRect{160, 70, 40, 40});
+    CHECK(clipped.x == 70);
+    CHECK(clipped.y == 40);
+    CHECK(clipped.w == 20);
+    CHECK(clipped.h == 20);
+
+    CHECK(is_empty(texture_local_rect_for_global_rect(source, GlobalFbRect{0, 0, 10, 10})));
+
+    const TextureRegion sub =
+        texture_subregion_for_global_rect(source, GlobalFbRect{120, 60, 40, 20});
+    CHECK(sub.global_bounds.x == 120);
+    CHECK(sub.global_bounds.y == 60);
+    CHECK(sub.global_bounds.w == 40);
+    CHECK(sub.global_bounds.h == 20);
+    CHECK(sub.local_rect.x == 30);
+    CHECK(sub.local_rect.y == 30);
+    CHECK(sub.local_rect.w == 40);
+    CHECK(sub.local_rect.h == 20);
+    CHECK(sub.texture_width == 256);
+    CHECK(sub.texture_height == 128);
+}
+
+TEST_CASE("RmlUi filter-copy mapping scenario uses canonical global and local helpers")
+{
+    TextureRegion source;
+    source.global_bounds = {100, 50, 80, 40};
+    source.local_rect = {10, 20, 80, 40};
+    source.texture_width = 256;
+    source.texture_height = 128;
+
+    const GlobalFbRect clamped_work_bounds{120, 60, 40, 20};
+    const GlobalFbRect source_copy_global = intersect(source.global_bounds, clamped_work_bounds);
+    const LocalFbRect source_copy_local =
+        texture_local_rect_for_global_rect(source, source_copy_global);
+    const LocalFbRect copy_destination =
+        local_rect_for_global_rect(source_copy_global, clamped_work_bounds);
+
+    CHECK(source_copy_global.x == 120);
+    CHECK(source_copy_global.y == 60);
+    CHECK(source_copy_global.w == 40);
+    CHECK(source_copy_global.h == 20);
+    CHECK(source_copy_local.x == 30);
+    CHECK(source_copy_local.y == 30);
+    CHECK(source_copy_local.w == 40);
+    CHECK(source_copy_local.h == 20);
+    CHECK(copy_destination.x == 0);
+    CHECK(copy_destination.y == 0);
+    CHECK(copy_destination.w == 40);
+    CHECK(copy_destination.h == 20);
+}
+
 TEST_CASE("RmlUi materialized layer scissor mapping clamps to target-local bounds")
 {
     const GlobalFbRect layer_bounds{100, 50, 200, 150};
@@ -905,6 +1006,32 @@ TEST_CASE("RmlUi materialized layer scissor mapping clamps to target-local bound
         Rml::Rectanglei::FromPositionSize({0, 0}, {20, 20}), layer_bounds);
     CHECK(none.Width() == 0);
     CHECK(none.Height() == 0);
+
+    const auto exact = clamp_scissor_local(
+        Rml::Rectanglei::FromPositionSize({100, 50}, {200, 150}), layer_bounds);
+    CHECK(exact.Left() == 0);
+    CHECK(exact.Top() == 0);
+    CHECK(exact.Width() == 200);
+    CHECK(exact.Height() == 150);
+
+    const auto negative_origin = clamp_scissor_local(
+        Rml::Rectanglei::FromPositionSize({-25, -10}, {160, 80}), layer_bounds);
+    CHECK(negative_origin.Left() == 0);
+    CHECK(negative_origin.Top() == 0);
+    CHECK(negative_origin.Width() == 35);
+    CHECK(negative_origin.Height() == 20);
+
+    const auto right_bottom = clamp_scissor_local(
+        Rml::Rectanglei::FromPositionSize({250, 160}, {100, 80}), layer_bounds);
+    CHECK(right_bottom.Left() == 150);
+    CHECK(right_bottom.Top() == 110);
+    CHECK(right_bottom.Width() == 50);
+    CHECK(right_bottom.Height() == 40);
+
+    const auto zero_layer = clamp_scissor_local(
+        Rml::Rectanglei::FromPositionSize({100, 50}, {200, 150}), GlobalFbRect{100, 50, 0, 0});
+    CHECK(zero_layer.Width() == 0);
+    CHECK(zero_layer.Height() == 0);
 }
 
 TEST_CASE("RmlUi compute_child_layer_bounds selection policy")
@@ -995,5 +1122,23 @@ TEST_CASE("RmlUi mask UV transform maps global work bounds into saved mask bound
         CHECK(uv[1] == Catch::Approx(112.0f / 96.0f));
         CHECK(uv[2] == Catch::Approx(-8.0f / 96.0f));
         CHECK(uv[3] == Catch::Approx(-8.0f / 96.0f));
+    }
+
+    SECTION("non-origin destination inside larger mask keeps positive global offset")
+    {
+        const auto uv = compute_mask_uv_transform({500, 40, 32, 24}, {476, 16, 96, 96});
+        CHECK(uv[0] == Catch::Approx(32.0f / 96.0f));
+        CHECK(uv[1] == Catch::Approx(24.0f / 96.0f));
+        CHECK(uv[2] == Catch::Approx(24.0f / 96.0f));
+        CHECK(uv[3] == Catch::Approx(24.0f / 96.0f));
+    }
+
+    SECTION("destination larger than mask exposes scale greater than one")
+    {
+        const auto uv = compute_mask_uv_transform({400, 0, 240, 144}, {476, 16, 96, 96});
+        CHECK(uv[0] == Catch::Approx(240.0f / 96.0f));
+        CHECK(uv[1] == Catch::Approx(144.0f / 96.0f));
+        CHECK(uv[2] == Catch::Approx(-76.0f / 96.0f));
+        CHECK(uv[3] == Catch::Approx(-16.0f / 96.0f));
     }
 }

@@ -1,5 +1,6 @@
 #include "rmlui_bgfx_filters.hpp"
 #include "rmlui_bgfx_filter_paths.hpp"
+#include "rmlui_bgfx_mapping.hpp"
 
 #include <algorithm>
 #include <array>
@@ -472,11 +473,7 @@ BgfxFilterPipeline::apply_common(const BgfxFilterPipelineContext& ctx, TextureRe
         return {};
     }
 
-    source.local_rect = {
-        source.local_rect.x + source_valid_global_bounds.x - source.global_bounds.x,
-        source.local_rect.y + source_valid_global_bounds.y - source.global_bounds.y,
-        source_valid_global_bounds.w, source_valid_global_bounds.h};
-    source.global_bounds = source_valid_global_bounds;
+    source = texture_subregion_for_global_rect(source, source_valid_global_bounds);
     result.output = source;
     result.output_bounds = render_bounds_from_framebuffer(source_valid_global_bounds, ctx.surface);
     result.valid_output_bounds = result.output_bounds;
@@ -578,12 +575,11 @@ BgfxFilterPipeline::apply_common(const BgfxFilterPipelineContext& ctx, TextureRe
             return {};
         }
         const auto mask_transform = mask_uv_transform(destination->bounds, mask.global_bounds);
-        const FbRect source_sample_local{
-            source.local_rect.x + destination->bounds.x - source.global_bounds.x,
-            source.local_rect.y + destination->bounds.y - source.global_bounds.y,
-            destination->bounds.w,
-            destination->bounds.h,
-        };
+        const FbRect source_sample_local =
+            texture_local_rect_for_global_rect(source, destination->bounds);
+        if (is_empty(source_sample_local)) {
+            return {};
+        }
         const auto source_uv = uv_rect_for_source_region(source_sample_local, source.texture_width,
                                                          source.texture_height);
         if (!ctx.draw_context.submit_mask_image(*pass, ctx.resources, source.texture, mask.texture,
@@ -606,13 +602,10 @@ BgfxFilterPipeline::apply_common(const BgfxFilterPipelineContext& ctx, TextureRe
     if (is_empty(source_copy_global)) {
         return {};
     }
-    const FbRect source_copy_local{
-        source.local_rect.x + source_copy_global.x - source.global_bounds.x,
-        source.local_rect.y + source_copy_global.y - source.global_bounds.y, source_copy_global.w,
-        source_copy_global.h};
-    const FbRect copy_destination{source_copy_global.x - clamped_work_bounds.x,
-                                  source_copy_global.y - clamped_work_bounds.y,
-                                  source_copy_global.w, source_copy_global.h};
+    const FbRect source_copy_local =
+        texture_local_rect_for_global_rect(source, source_copy_global);
+    const FbRect copy_destination =
+        local_rect_for_global_rect(source_copy_global, clamped_work_bounds);
     if (ctx.trace_filter_pipeline) {
         std::fprintf(stderr, "[rmlui-bgfx][filter] copy");
         trace_rect("source_global", source_copy_global);
