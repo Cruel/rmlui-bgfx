@@ -71,6 +71,47 @@ bool PostprocessPoolPlan::allocated(PostprocessTargetKind target) const
     return index < TargetCount && m_allocated[index];
 }
 
+const char* target_lifetime_name(TargetLifetime lifetime)
+{
+    switch (lifetime) {
+    case TargetLifetime::Frame:
+        return "Frame";
+    case TargetLifetime::Viewport:
+        return "Viewport";
+    case TargetLifetime::External:
+        return "External";
+    }
+    return "Unknown";
+}
+
+const char* target_role_name(TargetRole role)
+{
+    switch (role) {
+    case TargetRole::LayerColorDepth:
+        return "LayerColorDepth";
+    case TargetRole::Postprocess:
+        return "Postprocess";
+    }
+    return "Unknown";
+}
+
+const char* postprocess_target_kind_name(PostprocessTargetKind kind)
+{
+    switch (kind) {
+    case PostprocessTargetKind::Primary:
+        return "Primary";
+    case PostprocessTargetKind::Secondary:
+        return "Secondary";
+    case PostprocessTargetKind::Tertiary:
+        return "Tertiary";
+    case PostprocessTargetKind::BlendMask:
+        return "BlendMask";
+    case PostprocessTargetKind::Scratch:
+        return "Scratch";
+    }
+    return "Unknown";
+}
+
 StencilPlan choose_stencil_plan(bool d24s8_supported, bool d0s8_supported)
 {
     if (d24s8_supported)

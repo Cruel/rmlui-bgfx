@@ -6,6 +6,7 @@
 #include <bgfx/bgfx.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <deque>
 #include <vector>
 
@@ -55,7 +56,16 @@ public:
     void resize(const SurfaceMetrics& surface);
 
 private:
+    [[nodiscard]] uint64_t next_target_generation();
+    [[nodiscard]] TargetDescriptor make_layer_target_descriptor(
+        const RenderBounds& bounds, bgfx::TextureFormat::Enum stencil_format, bool requested_msaa,
+        uint8_t requested_msaa_samples) const;
+    [[nodiscard]] TargetDescriptor make_postprocess_target_descriptor(
+        PostprocessTargetKind kind, const FbRect& bounds, const SurfaceMetrics& surface) const;
+    void log_target_allocation_failure(const TargetDescriptor& desc, const char* step) const;
+
     PerfCounters* m_perf = nullptr;
+    uint64_t m_target_generation_counter = 0;
     std::vector<LayerRecord> m_layers;
     std::deque<RenderTargetRecord> m_postprocess_targets;
     LayerPoolPlan m_layer_pool;

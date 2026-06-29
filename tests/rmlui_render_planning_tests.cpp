@@ -1,4 +1,5 @@
 #include "rmlui_bgfx_planning.hpp"
+#include "rmlui_bgfx_types.hpp"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -62,6 +63,50 @@ TEST_CASE("RmlUi layer pool allocation is bounded by maximum nesting depth")
 
     CHECK(pool.slot_count() == max_depth + 1);
     CHECK(pool.allocation_count() == max_depth + 1);
+}
+
+TEST_CASE("RmlUi target metadata names are stable for diagnostics")
+{
+    CHECK(target_lifetime_name(TargetLifetime::Frame) == std::string("Frame"));
+    CHECK(target_lifetime_name(TargetLifetime::Viewport) == std::string("Viewport"));
+    CHECK(target_lifetime_name(TargetLifetime::External) == std::string("External"));
+
+    CHECK(target_role_name(TargetRole::LayerColorDepth) == std::string("LayerColorDepth"));
+    CHECK(target_role_name(TargetRole::Postprocess) == std::string("Postprocess"));
+
+    CHECK(postprocess_target_kind_name(PostprocessTargetKind::Primary) == std::string("Primary"));
+    CHECK(postprocess_target_kind_name(PostprocessTargetKind::Secondary) ==
+          std::string("Secondary"));
+    CHECK(postprocess_target_kind_name(PostprocessTargetKind::Tertiary) ==
+          std::string("Tertiary"));
+    CHECK(postprocess_target_kind_name(PostprocessTargetKind::BlendMask) ==
+          std::string("BlendMask"));
+    CHECK(postprocess_target_kind_name(PostprocessTargetKind::Scratch) ==
+          std::string("Scratch"));
+}
+
+TEST_CASE("RmlUi target metadata defaults are safe and explicit")
+{
+    LayerRecord layer;
+    CHECK(layer.target_lifetime == TargetLifetime::Viewport);
+    CHECK(layer.target_generation == 0);
+    CHECK(layer.color_format == bgfx::TextureFormat::RGBA8);
+    CHECK(layer.depth_stencil_format == bgfx::TextureFormat::Unknown);
+    CHECK(layer.msaa_samples == 0);
+
+    RenderTargetRecord postprocess;
+    CHECK(postprocess.kind == PostprocessTargetKind::Primary);
+    CHECK(postprocess.lifetime == TargetLifetime::Frame);
+    CHECK(postprocess.generation == 0);
+    CHECK(postprocess.color_format == bgfx::TextureFormat::RGBA8);
+    CHECK(postprocess.msaa_samples == 0);
+
+    TargetDescriptor descriptor;
+    CHECK(descriptor.role == TargetRole::LayerColorDepth);
+    CHECK(descriptor.lifetime == TargetLifetime::Frame);
+    CHECK(descriptor.color_format == bgfx::TextureFormat::RGBA8);
+    CHECK(descriptor.depth_stencil_format == bgfx::TextureFormat::Unknown);
+    CHECK(descriptor.generation == 0);
 }
 
 TEST_CASE("RmlUi postprocess pool does not consume layer handles")

@@ -72,6 +72,21 @@ enum class TextureOwnership {
     Postprocess,
 };
 
+enum class TargetLifetime {
+    Frame,
+    Viewport,
+    External,
+};
+
+enum class TargetRole {
+    LayerColorDepth,
+    Postprocess,
+};
+
+[[nodiscard]] const char* target_lifetime_name(TargetLifetime lifetime);
+[[nodiscard]] const char* target_role_name(TargetRole role);
+[[nodiscard]] const char* postprocess_target_kind_name(PostprocessTargetKind kind);
+
 [[nodiscard]] constexpr bool texture_ownership_releases_handle(TextureOwnership ownership)
 {
     return ownership == TextureOwnership::External || ownership == TextureOwnership::SavedLayer;

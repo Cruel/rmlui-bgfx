@@ -80,10 +80,33 @@ struct RecordedDrawCommand {
     uint8_t next_ref = 1;
 };
 
+struct TargetDescriptor {
+    TargetRole role = TargetRole::LayerColorDepth;
+    PostprocessTargetKind postprocess_kind = PostprocessTargetKind::Primary;
+    TargetLifetime lifetime = TargetLifetime::Frame;
+    GlobalFbRect bounds;
+    int texture_width = 0;
+    int texture_height = 0;
+    bgfx::TextureFormat::Enum color_format = bgfx::TextureFormat::RGBA8;
+    bgfx::TextureFormat::Enum depth_stencil_format = bgfx::TextureFormat::Unknown;
+    uint8_t msaa_samples = 0;
+    bool needs_depth_stencil = false;
+    bool sampleable = true;
+    bool blit_destination = false;
+    uint64_t generation = 0;
+    const char* debug_label = "RmlUi.Target";
+    const char* reason = nullptr;
+};
+
 struct LayerRecord {
     bgfx::FrameBufferHandle framebuffer = BGFX_INVALID_HANDLE;
     bgfx::TextureHandle color = BGFX_INVALID_HANDLE;
     bgfx::TextureHandle depth_stencil = BGFX_INVALID_HANDLE;
+    TargetLifetime target_lifetime = TargetLifetime::Viewport;
+    uint64_t target_generation = 0;
+    bgfx::TextureFormat::Enum color_format = bgfx::TextureFormat::RGBA8;
+    bgfx::TextureFormat::Enum depth_stencil_format = bgfx::TextureFormat::Unknown;
+    uint8_t msaa_samples = 0;
     RenderBounds bounds;
     GlobalFbRect valid_content_bounds;
     bool has_valid_content_bounds = false;
@@ -179,6 +202,10 @@ struct RenderTargetRecord {
     int texture_width = 0;
     int texture_height = 0;
     PostprocessTargetKind kind = PostprocessTargetKind::Primary;
+    TargetLifetime lifetime = TargetLifetime::Frame;
+    uint64_t generation = 0;
+    bgfx::TextureFormat::Enum color_format = bgfx::TextureFormat::RGBA8;
+    uint8_t msaa_samples = 0;
 };
 
 struct TextureRegion {

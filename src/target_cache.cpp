@@ -14,9 +14,96 @@ bool is_full_frame_rect(FbRect rect, int width, int height)
     return !is_empty(rect) && rect.x == 0 && rect.y == 0 && rect.w >= width && rect.h >= height;
 }
 
+const char* texture_format_name(bgfx::TextureFormat::Enum format)
+{
+    switch (format) {
+    case bgfx::TextureFormat::RGBA8:
+        return "RGBA8";
+    case bgfx::TextureFormat::D24S8:
+        return "D24S8";
+    case bgfx::TextureFormat::D0S8:
+        return "D0S8";
+    case bgfx::TextureFormat::Unknown:
+        return "Unknown";
+    default:
+        return "Other";
+    }
+}
+
 } // namespace
 
 BgfxTargetCache::BgfxTargetCache(PerfCounters* perf) : m_perf(perf) {}
+
+uint64_t BgfxTargetCache::next_target_generation()
+{
+    ++m_target_generation_counter;
+    if (m_target_generation_counter == 0) {
+        ++m_target_generation_counter;
+    }
+    return m_target_generation_counter;
+}
+
+TargetDescriptor BgfxTargetCache::make_layer_target_descriptor(
+    const RenderBounds& bounds, bgfx::TextureFormat::Enum stencil_format, bool requested_msaa,
+    uint8_t requested_msaa_samples) const
+{
+    return TargetDescriptor{TargetRole::LayerColorDepth,
+                            PostprocessTargetKind::Primary,
+                            TargetLifetime::Viewport,
+                            bounds.framebuffer,
+                            bounds.framebuffer.w,
+                            bounds.framebuffer.h,
+                            bgfx::TextureFormat::RGBA8,
+                            stencil_format,
+                            uint8_t(requested_msaa ? requested_msaa_samples : 0),
+                            true,
+                            true,
+                            false,
+                            0,
+                            "RmlUi.LayerTarget",
+                            "layer materialization"};
+}
+
+TargetDescriptor BgfxTargetCache::make_postprocess_target_descriptor(
+    PostprocessTargetKind kind, const FbRect& bounds, const SurfaceMetrics& surface) const
+{
+    return TargetDescriptor{TargetRole::Postprocess,
+                            kind,
+                            TargetLifetime::Frame,
+                            bounds,
+                            bounds.w,
+                            bounds.h,
+                            bgfx::TextureFormat::RGBA8,
+                            bgfx::TextureFormat::Unknown,
+                            0,
+                            false,
+                            true,
+                            bgfx::getCaps() &&
+                                (bgfx::getCaps()->supported & BGFX_CAPS_TEXTURE_BLIT) != 0,
+                            0,
+                            "RmlUi.PostprocessTarget",
+                            is_full_frame_rect(bounds, surface.framebuffer_width,
+                                               surface.framebuffer_height)
+                                ? "full-frame postprocess"
+                                : "bounded postprocess"};
+}
+
+void BgfxTargetCache::log_target_allocation_failure(const TargetDescriptor& desc,
+                                                    const char* step) const
+{
+    std::fprintf(stderr,
+                 "[rmlui] failed to allocate target step=%s role=%s kind=%s lifetime=%s "
+                 "bounds=(%d,%d %dx%d) size=%dx%d color=%s depth=%s msaa=%u label=%s reason=%s\n",
+                 step ? step : "unknown", target_role_name(desc.role),
+                 desc.role == TargetRole::Postprocess
+                     ? postprocess_target_kind_name(desc.postprocess_kind)
+                     : "n/a",
+                 target_lifetime_name(desc.lifetime), desc.bounds.x, desc.bounds.y, desc.bounds.w,
+                 desc.bounds.h, desc.texture_width, desc.texture_height,
+                 texture_format_name(desc.color_format), texture_format_name(desc.depth_stencil_format),
+                 unsigned(desc.msaa_samples), desc.debug_label ? desc.debug_label : "n/a",
+                 desc.reason ? desc.reason : "n/a");
+}
 
 BgfxTargetCache::~BgfxTargetCache()
 {
@@ -132,14 +219,17 @@ bool BgfxTargetCache::ensure_layer_target(uint32_t slot, const RenderBounds& bou
         msaa_flag != 0 &&
         bgfx::isTextureValid(0, false, 1, bgfx::TextureFormat::RGBA8, msaa_color_flags) &&
         bgfx::isTextureValid(0, false, 1, stencil_format, msaa_depth_flags);
+    const TargetDescriptor descriptor =
+        make_layer_target_descriptor(bounds, stencil_format, requested_msaa, msaa_samples);
     LayerRecord& layer_record = prepare_virtual_layer_slot(slot);
     if (m_perf) {
         m_perf->update_layer_max(uint32_t(bounds.framebuffer.w), uint32_t(bounds.framebuffer.h));
     }
     if (bgfx::isValid(layer_record.framebuffer) &&
-        layer_record.texture_width == bounds.framebuffer.w &&
-        layer_record.texture_height == bounds.framebuffer.h &&
-        layer_record.msaa_enabled == requested_msaa) {
+        layer_record.texture_width == descriptor.texture_width &&
+        layer_record.texture_height == descriptor.texture_height &&
+        layer_record.msaa_enabled == requested_msaa &&
+        layer_record.depth_stencil_format == descriptor.depth_stencil_format) {
         layer_record.bounds = bounds;
         layer_record.materialized = true;
         bx::mtxOrtho(layer_record.projection, bounds.logical.x, bounds.logical.x + bounds.logical.w,
@@ -174,16 +264,17 @@ bool BgfxTargetCache::ensure_layer_target(uint32_t slot, const RenderBounds& bou
                        : (BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
     const uint64_t depth_flags = requested_msaa ? msaa_depth_flags : BGFX_TEXTURE_RT_WRITE_ONLY;
     if (stencil_format == bgfx::TextureFormat::Unknown) {
-        std::fprintf(stderr, "[rmlui] advanced renderer requires a stencil-capable render "
-                             "target; D24S8 is unavailable\n");
+        log_target_allocation_failure(descriptor, "stencil format");
         return false;
     }
     bgfx::TextureHandle color =
-        bgfx::createTexture2D(uint16_t(bounds.framebuffer.w), uint16_t(bounds.framebuffer.h), false,
-                              1, bgfx::TextureFormat::RGBA8, color_flags);
+        bgfx::createTexture2D(uint16_t(descriptor.texture_width),
+                              uint16_t(descriptor.texture_height), false, 1,
+                              descriptor.color_format, color_flags);
     bgfx::TextureHandle depth =
-        bgfx::createTexture2D(uint16_t(bounds.framebuffer.w), uint16_t(bounds.framebuffer.h), false,
-                              1, stencil_format, depth_flags);
+        bgfx::createTexture2D(uint16_t(descriptor.texture_width),
+                              uint16_t(descriptor.texture_height), false, 1,
+                              stencil_format, depth_flags);
     if (!bgfx::isValid(color) || !bgfx::isValid(depth)) {
         if (bgfx::isValid(color)) {
             bgfx::destroy(color);
@@ -191,7 +282,8 @@ bool BgfxTargetCache::ensure_layer_target(uint32_t slot, const RenderBounds& bou
         if (bgfx::isValid(depth)) {
             bgfx::destroy(depth);
         }
-        std::fprintf(stderr, "[rmlui] failed to create layer framebuffer attachments\n");
+        log_target_allocation_failure(descriptor, !bgfx::isValid(color) ? "color texture"
+                                                                        : "depth-stencil texture");
         return false;
     }
 
@@ -201,7 +293,7 @@ bool BgfxTargetCache::ensure_layer_target(uint32_t slot, const RenderBounds& bou
     if (!bgfx::isValid(framebuffer)) {
         bgfx::destroy(color);
         bgfx::destroy(depth);
-        std::fprintf(stderr, "[rmlui] failed to create layer framebuffer\n");
+        log_target_allocation_failure(descriptor, "framebuffer");
         return false;
     }
 
@@ -214,8 +306,13 @@ bool BgfxTargetCache::ensure_layer_target(uint32_t slot, const RenderBounds& bou
     layer_record.conservative_mask_bounds = saved_conservative_mask_bounds;
     layer_record.content_bounds_transform_fallback = saved_content_bounds_transform_fallback;
     layer_record.content_bounds_inverse_mask_fallback = saved_content_bounds_inverse_mask_fallback;
-    layer_record.texture_width = bounds.framebuffer.w;
-    layer_record.texture_height = bounds.framebuffer.h;
+    layer_record.texture_width = descriptor.texture_width;
+    layer_record.texture_height = descriptor.texture_height;
+    layer_record.target_lifetime = descriptor.lifetime;
+    layer_record.target_generation = next_target_generation();
+    layer_record.color_format = descriptor.color_format;
+    layer_record.depth_stencil_format = descriptor.depth_stencil_format;
+    layer_record.msaa_samples = descriptor.msaa_samples;
     layer_record.msaa_enabled = requested_msaa;
     layer_record.clip_mask_enabled = saved_clip_mask_enabled;
     layer_record.stencil_ref = saved_stencil_ref;
@@ -250,8 +347,9 @@ RenderTargetRecord* BgfxTargetCache::acquire_postprocess_target(PostprocessTarge
     if (is_empty(clamped_bounds)) {
         return nullptr;
     }
-    const int work_w = clamped_bounds.w;
-    const int work_h = clamped_bounds.h;
+    const TargetDescriptor descriptor = make_postprocess_target_descriptor(kind, clamped_bounds, surface);
+    const int work_w = descriptor.texture_width;
+    const int work_h = descriptor.texture_height;
     const bool target_is_full_frame =
         is_full_frame_rect(clamped_bounds, surface.framebuffer_width, surface.framebuffer_height);
     if (m_perf) {
@@ -260,29 +358,39 @@ RenderTargetRecord* BgfxTargetCache::acquire_postprocess_target(PostprocessTarge
     }
     for (RenderTargetRecord& target : m_postprocess_targets) {
         if (target.kind == kind && bgfx::isValid(target.framebuffer) &&
-            target.texture_width == work_w && target.texture_height == work_h) {
-            target.bounds = clamped_bounds;
+            target.texture_width == work_w && target.texture_height == work_h &&
+            target.color_format == descriptor.color_format && target.lifetime == descriptor.lifetime) {
+            target.bounds = descriptor.bounds;
             return &target;
         }
     }
 
     uint64_t flags = BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP;
-    if (bgfx::getCaps() && (bgfx::getCaps()->supported & BGFX_CAPS_TEXTURE_BLIT) != 0) {
+    if (descriptor.blit_destination) {
         flags |= BGFX_TEXTURE_BLIT_DST;
     }
     bgfx::TextureHandle color = bgfx::createTexture2D(uint16_t(work_w), uint16_t(work_h), false, 1,
-                                                      bgfx::TextureFormat::RGBA8, flags);
+                                                      descriptor.color_format, flags);
     if (!bgfx::isValid(color)) {
-        std::fprintf(stderr, "[rmlui] failed to create postprocess target texture\n");
+        log_target_allocation_failure(descriptor, "color texture");
         return nullptr;
     }
     bgfx::FrameBufferHandle framebuffer = bgfx::createFrameBuffer(1, &color, true);
     if (!bgfx::isValid(framebuffer)) {
         bgfx::destroy(color);
-        std::fprintf(stderr, "[rmlui] failed to create postprocess framebuffer\n");
+        log_target_allocation_failure(descriptor, "framebuffer");
         return nullptr;
     }
-    m_postprocess_targets.push_back({framebuffer, color, clamped_bounds, work_w, work_h, kind});
+    m_postprocess_targets.push_back({framebuffer,
+                                     color,
+                                     descriptor.bounds,
+                                     descriptor.texture_width,
+                                     descriptor.texture_height,
+                                     kind,
+                                     descriptor.lifetime,
+                                     next_target_generation(),
+                                     descriptor.color_format,
+                                     descriptor.msaa_samples});
     RenderTargetRecord& target = m_postprocess_targets.back();
     m_postprocess_pool.mark_allocated(kind);
     if (m_perf) {
