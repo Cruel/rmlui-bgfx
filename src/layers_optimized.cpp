@@ -295,18 +295,18 @@ void composite_layers_optimized(BgfxLayerSystem& layer_system, const BgfxLayerCo
             destination_clip = true;
             destination_stencil_ref = destination_layer->stencil_ref;
         }
-        const ScissorState destination_scissor =
+        const ScissorState destination_local_scissor =
             scissor_local_to_layer(ctx.scissor_state, destination_layer->bounds);
-        const FbRect destination_bounds =
+        const FbRect destination_local_bounds =
             local_rect_for_layer(filtered.output_bounds.framebuffer, *destination_layer);
-        if (is_empty(destination_bounds)) {
+        if (is_empty(destination_local_bounds)) {
             return;
         }
         if (!ctx.composite(make_layer_composite_op(
-                filtered.output, destination_layer->framebuffer, blend_mode, destination_scissor,
-                destination_clip, destination_stencil_ref, RmlUiPassKind::LayerComposite,
-                RmlUiPassReason::LayerComposite, "RmlUi.LayerComposite", destination_bounds,
-                filtered.composite_filter))) {
+                filtered.output, destination_layer->framebuffer, blend_mode,
+                destination_local_scissor, destination_clip, destination_stencil_ref,
+                RmlUiPassKind::LayerComposite, RmlUiPassReason::LayerComposite,
+                "RmlUi.LayerComposite", destination_local_bounds, filtered.composite_filter))) {
             if (ctx.fail_frame) {
                 ctx.fail_frame("CompositeLayers composite failed");
             }
@@ -383,9 +383,11 @@ void composite_layers_optimized(BgfxLayerSystem& layer_system, const BgfxLayerCo
         destination_clip = true;
         destination_stencil_ref = destination_layer->stencil_ref;
     }
-    const ScissorState destination_scissor =
+    const ScissorState destination_local_scissor =
         scissor_local_to_layer(ctx.scissor_state, destination_layer->bounds);
-    const FbRect destination_bounds =
+    // Filter output bounds are global framebuffer coordinates. Convert them exactly once into the
+    // destination layer's target-local rectangle before building CompositeOp.
+    const FbRect destination_local_bounds =
         local_rect_for_layer(filtered.output_bounds.framebuffer, *destination_layer);
     if (ctx.filter_context.trace_filter_pipeline && has_effective_filters) {
         std::fprintf(
@@ -393,22 +395,22 @@ void composite_layers_optimized(BgfxLayerSystem& layer_system, const BgfxLayerCo
             "[rmlui-bgfx][optimized-layer] composite src=%zu dst=%zu dst_clip=%d dst_ref=%u",
             size_t(source), size_t(destination), destination_clip ? 1 : 0,
             unsigned(destination_stencil_ref));
-        trace_rect("dst_rect", destination_bounds);
-        if (destination_scissor.enabled) {
-            trace_rect("dst_scissor",
-                       FbRect{destination_scissor.region.Left(), destination_scissor.region.Top(),
-                              destination_scissor.region.Width(),
-                              destination_scissor.region.Height()});
+        trace_rect("dst_local", destination_local_bounds);
+        if (destination_local_scissor.enabled) {
+            trace_rect("dst_scissor_local", FbRect{destination_local_scissor.region.Left(),
+                                                   destination_local_scissor.region.Top(),
+                                                   destination_local_scissor.region.Width(),
+                                                   destination_local_scissor.region.Height()});
         }
         std::fprintf(stderr, "\n");
     }
-    if (is_empty(destination_bounds)) {
+    if (is_empty(destination_local_bounds)) {
         return;
     }
     if (!ctx.composite(make_layer_composite_op(
-            filtered.output, destination_layer->framebuffer, blend_mode, destination_scissor,
+            filtered.output, destination_layer->framebuffer, blend_mode, destination_local_scissor,
             destination_clip, destination_stencil_ref, RmlUiPassKind::LayerComposite,
-            RmlUiPassReason::LayerComposite, "RmlUi.LayerComposite", destination_bounds,
+            RmlUiPassReason::LayerComposite, "RmlUi.LayerComposite", destination_local_bounds,
             filtered.composite_filter))) {
         if (ctx.fail_frame) {
             ctx.fail_frame("CompositeLayers composite failed");

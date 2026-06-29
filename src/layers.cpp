@@ -280,6 +280,8 @@ Rml::TextureHandle BgfxLayerSystem::save_layer_as_texture(const BgfxLayerSaveTex
         !ctx.texture_counter) {
         return 0;
     }
+    // Convert the requested global framebuffer save rectangle into the compact layer target's
+    // local sampling rectangle. The output texture still keeps the original global/scissor size.
     const FbRect local_bounds = local_rect_for_layer(global_bounds, *layer);
     if (is_empty(local_bounds)) {
         return 0;
@@ -293,6 +295,8 @@ Rml::TextureHandle BgfxLayerSystem::save_layer_as_texture(const BgfxLayerSaveTex
                                              "RmlUi.SaveLayerAsTexture", true);
     } else if (ctx.copy_region_to_sized_texture) {
         const FbRect overlap_global = intersect(global_bounds, layer->bounds.framebuffer);
+        // Offset is in saved-texture-local coordinates, preserving GL3's requested scissor-sized
+        // output even when the bounded layer only contains an overlapping subregion.
         const Rml::Vector2i destination_offset{overlap_global.x - global_bounds.x,
                                                overlap_global.y - global_bounds.y};
         texture = ctx.copy_region_to_sized_texture(layer->color, rectangle_from_fb(local_bounds),

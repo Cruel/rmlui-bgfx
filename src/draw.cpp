@@ -65,15 +65,19 @@ bool BgfxDrawContext::submit_geometry(const RmlUiPass& pass, const BgfxDrawResou
     }
 
     if (state.scissor.enabled) {
-        const Rml::Rectanglei scissor =
+        const Rml::Rectanglei target_local_scissor =
             clamp_scissor_local(state.scissor.region, layer.bounds.framebuffer);
-        if (scissor.Width() <= 0 || scissor.Height() <= 0) {
+        if (target_local_scissor.Width() <= 0 || target_local_scissor.Height() <= 0) {
             return false;
         }
-        bgfx::setScissor(uint16_t(scissor.Left()), uint16_t(scissor.Top()),
-                         uint16_t(scissor.Width()), uint16_t(scissor.Height()));
+        bgfx::setScissor(
+            uint16_t(target_local_scissor.Left()), uint16_t(target_local_scissor.Top()),
+            uint16_t(target_local_scissor.Width()), uint16_t(target_local_scissor.Height()));
     }
 
+    // Non-transformed bounded replay keeps translation in RmlUi/global logical coordinates. The
+    // layer projection encodes the compact target's global logical bounds, so subtracting the layer
+    // origin here would double-rebase geometry.
     bgfx::setVertexBuffer(0, geometry.vb);
     bgfx::setIndexBuffer(geometry.ib, 0, geometry.index_count);
     bgfx::setUniform(resources.projection_uniform, layer.projection);
@@ -103,15 +107,18 @@ bool BgfxDrawContext::submit_gradient(const RmlUiPass& pass, const BgfxDrawResou
     }
 
     if (state.scissor.enabled) {
-        const Rml::Rectanglei scissor =
+        const Rml::Rectanglei target_local_scissor =
             clamp_scissor_local(state.scissor.region, layer.bounds.framebuffer);
-        if (scissor.Width() <= 0 || scissor.Height() <= 0) {
+        if (target_local_scissor.Width() <= 0 || target_local_scissor.Height() <= 0) {
             return false;
         }
-        bgfx::setScissor(uint16_t(scissor.Left()), uint16_t(scissor.Top()),
-                         uint16_t(scissor.Width()), uint16_t(scissor.Height()));
+        bgfx::setScissor(
+            uint16_t(target_local_scissor.Left()), uint16_t(target_local_scissor.Top()),
+            uint16_t(target_local_scissor.Width()), uint16_t(target_local_scissor.Height()));
     }
 
+    // Gradients follow the same bounded replay contract as ordinary geometry: translation remains
+    // global/logical and target origin is represented by the layer projection.
     std::array<float, 8> gradient_params{gradient_kind_code(shader.gradient.kind),
                                          float(shader.gradient.stop_count),
                                          shader.gradient.p_v[0],
@@ -157,9 +164,12 @@ bool BgfxDrawContext::submit_composite(const RmlUiPass& pass, const BgfxDrawReso
     }
 
     if (op.scissor.enabled) {
-        const FbRect target_scissor{op.scissor.region.Left(), op.scissor.region.Top(),
-                                    op.scissor.region.Width(), op.scissor.region.Height()};
-        const FbRect clipped_scissor = intersect(target_scissor, destination_rect);
+        // CompositeOp::scissor is already destination-target-local. Intersect with the local
+        // destination rect only; do not subtract a layer origin again here.
+        const FbRect destination_local_scissor{op.scissor.region.Left(), op.scissor.region.Top(),
+                                               op.scissor.region.Width(),
+                                               op.scissor.region.Height()};
+        const FbRect clipped_scissor = intersect(destination_local_scissor, destination_rect);
         if (is_empty(clipped_scissor)) {
             return true;
         }
@@ -322,13 +332,14 @@ bool BgfxDrawContext::submit_clip_mask(const RmlUiPass& pass, const BgfxDrawReso
     }
 
     if (state.scissor.enabled) {
-        const Rml::Rectanglei clipped =
+        const Rml::Rectanglei target_local_scissor =
             clamp_scissor_local(state.scissor.region, layer.bounds.framebuffer);
-        if (clipped.Width() <= 0 || clipped.Height() <= 0) {
+        if (target_local_scissor.Width() <= 0 || target_local_scissor.Height() <= 0) {
             return false;
         }
-        bgfx::setScissor(uint16_t(clipped.Left()), uint16_t(clipped.Top()),
-                         uint16_t(clipped.Width()), uint16_t(clipped.Height()));
+        bgfx::setScissor(
+            uint16_t(target_local_scissor.Left()), uint16_t(target_local_scissor.Top()),
+            uint16_t(target_local_scissor.Width()), uint16_t(target_local_scissor.Height()));
     }
 
     bgfx::setVertexBuffer(0, geometry.vb);

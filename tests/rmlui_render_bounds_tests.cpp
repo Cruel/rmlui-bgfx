@@ -909,7 +909,8 @@ TEST_CASE("RmlUi global and target-local mapping helpers round trip bounded rect
     CHECK(is_empty(local_rect_for_global_rect(GlobalFbRect{0, 0, 20, 20}, target)));
 
     const GlobalFbRect full_frame{0, 0, 800, 600};
-    const LocalFbRect identity = local_rect_for_global_rect(GlobalFbRect{0, 0, 800, 600}, full_frame);
+    const LocalFbRect identity =
+        local_rect_for_global_rect(GlobalFbRect{0, 0, 800, 600}, full_frame);
     CHECK(identity.x == 0);
     CHECK(identity.y == 0);
     CHECK(identity.w == 800);
@@ -984,45 +985,129 @@ TEST_CASE("RmlUi filter-copy mapping scenario uses canonical global and local he
     CHECK(copy_destination.h == 20);
 }
 
+TEST_CASE(
+    "RmlUi non-transformed bounded replay keeps global draw and local scissor spaces separate")
+{
+    LayerRecord layer;
+    layer.bounds.framebuffer = {120, 80, 300, 200};
+    layer.texture_width = 300;
+    layer.texture_height = 200;
+
+    const GlobalFbRect global_geometry{150, 100, 90, 60};
+    const GlobalFbRect global_scissor{140, 90, 50, 40};
+    const GlobalFbRect visible_global = intersect(global_geometry, global_scissor);
+    const LocalFbRect visible_local = local_rect_for_layer(visible_global, layer);
+    const auto local_scissor =
+        clamp_scissor_local(Rml::Rectanglei::FromPositionSize({global_scissor.x, global_scissor.y},
+                                                              {global_scissor.w, global_scissor.h}),
+                            layer.bounds.framebuffer);
+
+    CHECK(visible_global.x == 150);
+    CHECK(visible_global.y == 100);
+    CHECK(visible_global.w == 40);
+    CHECK(visible_global.h == 30);
+    CHECK(visible_local.x == 30);
+    CHECK(visible_local.y == 20);
+    CHECK(visible_local.w == 40);
+    CHECK(visible_local.h == 30);
+    CHECK(local_scissor.Left() == 20);
+    CHECK(local_scissor.Top() == 10);
+    CHECK(local_scissor.Width() == 50);
+    CHECK(local_scissor.Height() == 40);
+}
+
+TEST_CASE("RmlUi bounded layer composite maps global output to destination-local rectangle")
+{
+    LayerRecord destination;
+    destination.bounds.framebuffer = {80, 40, 200, 150};
+    destination.texture_width = 200;
+    destination.texture_height = 150;
+
+    const GlobalFbRect output_global{100, 50, 80, 40};
+    const LocalFbRect destination_local = local_rect_for_layer(output_global, destination);
+
+    CHECK(destination_local.x == 20);
+    CHECK(destination_local.y == 10);
+    CHECK(destination_local.w == 80);
+    CHECK(destination_local.h == 40);
+
+    const GlobalFbRect clipped_output_global{250, 160, 80, 60};
+    const LocalFbRect clipped_destination_local =
+        local_rect_for_layer(clipped_output_global, destination);
+
+    CHECK(clipped_destination_local.x == 170);
+    CHECK(clipped_destination_local.y == 120);
+    CHECK(clipped_destination_local.w == 30);
+    CHECK(clipped_destination_local.h == 30);
+}
+
+TEST_CASE("RmlUi bounded texture sampling respects non-zero texture-local origins")
+{
+    TextureRegion source;
+    source.global_bounds = {200, 120, 100, 50};
+    source.local_rect = {16, 24, 100, 50};
+    source.texture_width = 256;
+    source.texture_height = 128;
+
+    const GlobalFbRect sample_global{225, 130, 40, 20};
+    const LocalFbRect sample_local = texture_local_rect_for_global_rect(source, sample_global);
+    const TextureRegion sampled = texture_subregion_for_global_rect(source, sample_global);
+
+    CHECK(sample_local.x == 41);
+    CHECK(sample_local.y == 34);
+    CHECK(sample_local.w == 40);
+    CHECK(sample_local.h == 20);
+    CHECK(sampled.global_bounds.x == 225);
+    CHECK(sampled.global_bounds.y == 130);
+    CHECK(sampled.global_bounds.w == 40);
+    CHECK(sampled.global_bounds.h == 20);
+    CHECK(sampled.local_rect.x == 41);
+    CHECK(sampled.local_rect.y == 34);
+    CHECK(sampled.local_rect.w == 40);
+    CHECK(sampled.local_rect.h == 20);
+    CHECK(sampled.texture_width == 256);
+    CHECK(sampled.texture_height == 128);
+}
+
 TEST_CASE("RmlUi materialized layer scissor mapping clamps to target-local bounds")
 {
     const GlobalFbRect layer_bounds{100, 50, 200, 150};
 
-    const auto partial = clamp_scissor_local(
-        Rml::Rectanglei::FromPositionSize({150, 80}, {200, 100}), layer_bounds);
+    const auto partial =
+        clamp_scissor_local(Rml::Rectanglei::FromPositionSize({150, 80}, {200, 100}), layer_bounds);
     CHECK(partial.Left() == 50);
     CHECK(partial.Top() == 30);
     CHECK(partial.Width() == 150);
     CHECK(partial.Height() == 100);
 
-    const auto full = clamp_scissor_local(
-        Rml::Rectanglei::FromPositionSize({90, 40}, {240, 190}), layer_bounds);
+    const auto full =
+        clamp_scissor_local(Rml::Rectanglei::FromPositionSize({90, 40}, {240, 190}), layer_bounds);
     CHECK(full.Left() == 0);
     CHECK(full.Top() == 0);
     CHECK(full.Width() == 200);
     CHECK(full.Height() == 150);
 
-    const auto none = clamp_scissor_local(
-        Rml::Rectanglei::FromPositionSize({0, 0}, {20, 20}), layer_bounds);
+    const auto none =
+        clamp_scissor_local(Rml::Rectanglei::FromPositionSize({0, 0}, {20, 20}), layer_bounds);
     CHECK(none.Width() == 0);
     CHECK(none.Height() == 0);
 
-    const auto exact = clamp_scissor_local(
-        Rml::Rectanglei::FromPositionSize({100, 50}, {200, 150}), layer_bounds);
+    const auto exact =
+        clamp_scissor_local(Rml::Rectanglei::FromPositionSize({100, 50}, {200, 150}), layer_bounds);
     CHECK(exact.Left() == 0);
     CHECK(exact.Top() == 0);
     CHECK(exact.Width() == 200);
     CHECK(exact.Height() == 150);
 
-    const auto negative_origin = clamp_scissor_local(
-        Rml::Rectanglei::FromPositionSize({-25, -10}, {160, 80}), layer_bounds);
+    const auto negative_origin =
+        clamp_scissor_local(Rml::Rectanglei::FromPositionSize({-25, -10}, {160, 80}), layer_bounds);
     CHECK(negative_origin.Left() == 0);
     CHECK(negative_origin.Top() == 0);
     CHECK(negative_origin.Width() == 35);
     CHECK(negative_origin.Height() == 20);
 
-    const auto right_bottom = clamp_scissor_local(
-        Rml::Rectanglei::FromPositionSize({250, 160}, {100, 80}), layer_bounds);
+    const auto right_bottom =
+        clamp_scissor_local(Rml::Rectanglei::FromPositionSize({250, 160}, {100, 80}), layer_bounds);
     CHECK(right_bottom.Left() == 150);
     CHECK(right_bottom.Top() == 110);
     CHECK(right_bottom.Width() == 50);

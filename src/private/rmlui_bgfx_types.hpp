@@ -50,6 +50,9 @@ struct ShaderRecord {
 
 struct ScissorState {
     bool enabled = false;
+    // Unless a call site explicitly names this as target-local, this rectangle is in global
+    // framebuffer coordinates. Geometry, gradient, material, and clip-mask submissions convert it
+    // to target-local space at the final draw boundary.
     Rml::Rectanglei region = Rml::Rectanglei::FromPositionSize({0, 0}, {0, 0});
 };
 
@@ -230,6 +233,9 @@ struct RenderTargetRecord {
 
 struct TextureRegion {
     bgfx::TextureHandle texture = BGFX_INVALID_HANDLE;
+    // Surface-space rectangle represented by local_rect inside this texture. This lets a compact
+    // texture preserve GL3's global layer semantics without assuming the sampled pixels begin at
+    // local origin {0, 0}.
     GlobalFbRect global_bounds;
     LocalFbRect local_rect;
     int texture_width = 0;
@@ -245,9 +251,13 @@ struct CompositeFilterState {
 struct CompositeOp {
     TextureRegion source;
     bgfx::FrameBufferHandle destination = BGFX_INVALID_HANDLE;
+    // Destination-target-local rectangle. Callers must convert from global output bounds with the
+    // destination layer mapping before submitting a composite.
     LocalFbRect destination_rect;
 
     Rml::BlendMode blend_mode = Rml::BlendMode::Blend;
+    // Destination-target-local scissor when enabled. Unlike generic ScissorState values, this one
+    // is already converted before BgfxDrawContext::submit_composite() sees it.
     ScissorState scissor;
     bool apply_destination_stencil = false;
     bool msaa_enabled = false;

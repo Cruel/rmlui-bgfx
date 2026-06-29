@@ -928,6 +928,8 @@ struct RenderInterface::Impl {
             return false;
         const int lw = layer->texture_width;
         const int lh = layer->texture_height;
+        // Clears are target-local full-target operations. The layer's global origin is encoded in
+        // the projection used by later draws, not in the clear view rectangle.
         auto pass = pass_builder.layer_clear(layer->framebuffer, lw, lh);
         if (!pass)
             return false;
@@ -1265,6 +1267,8 @@ struct RenderInterface::Impl {
         if (auto it = textures.find(texture); it != textures.end()) {
             bgfx_texture = it->second.handle;
         }
+        // Keep translation in RmlUi/global logical space. For compact non-transformed layers,
+        // layer->projection already maps that global logical rectangle into the target-local view.
         draw_context.submit_geometry(
             *pass, draw_resources(), geometry, *layer,
             BgfxGeometryDrawState{translation, bgfx_texture,
@@ -1863,10 +1867,10 @@ struct RenderInterface::Impl {
             texture_height = it->second.dimensions.y;
         }
 
-        Rml::Rectanglei local_scissor = Rml::Rectanglei::FromPositionSize({0, 0}, {0, 0});
+        Rml::Rectanglei target_local_scissor = Rml::Rectanglei::FromPositionSize({0, 0}, {0, 0});
         if (scissor_enabled) {
-            local_scissor = clamp_scissor_local(scissor_region, layer->bounds.framebuffer);
-            if (local_scissor.Width() <= 0 || local_scissor.Height() <= 0)
+            target_local_scissor = clamp_scissor_local(scissor_region, layer->bounds.framebuffer);
+            if (target_local_scissor.Width() <= 0 || target_local_scissor.Height() <= 0)
                 return;
         }
 
@@ -1879,7 +1883,9 @@ struct RenderInterface::Impl {
         context.transform = transform_valid ? transform : identity;
         context.translation = translation;
         context.scissor_enabled = scissor_enabled;
-        context.local_scissor = local_scissor;
+        // Material shader providers receive target-local scissor plus the same global-logical
+        // projection/translation contract used by ordinary geometry and gradients.
+        context.local_scissor = target_local_scissor;
         context.clip_mask_enabled = layer->clip_mask_enabled;
         context.msaa_enabled = layer->msaa_enabled;
         context.stencil_state = stencil_test_state();

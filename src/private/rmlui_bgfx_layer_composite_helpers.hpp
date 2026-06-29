@@ -8,6 +8,9 @@
 
 namespace rmlui_bgfx {
 
+// The layer texture region preserves a global framebuffer-space rectangle alongside the
+// texture-local pixels that represent it. This is the bridge between GL3's full-layer semantics
+// and compact bgfx layer targets.
 [[nodiscard]] inline TextureRegion make_layer_texture_region(bgfx::TextureHandle texture,
                                                              GlobalFbRect global_bounds,
                                                              LocalFbRect local_rect,
@@ -16,6 +19,9 @@ namespace rmlui_bgfx {
     return TextureRegion{texture, global_bounds, local_rect, texture_width, texture_height};
 }
 
+// `source` carries both global bounds and texture-local sampling bounds. `destination_rect` and
+// `scissor` must already be destination-target-local; submit_composite() does not subtract the
+// destination layer origin again.
 [[nodiscard]] inline CompositeOp
 make_layer_composite_op(TextureRegion source, bgfx::FrameBufferHandle destination,
                         Rml::BlendMode blend_mode, ScissorState scissor,
