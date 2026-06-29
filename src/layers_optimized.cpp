@@ -297,8 +297,8 @@ void composite_layers_optimized(BgfxLayerSystem& layer_system, const BgfxLayerCo
         }
         const ScissorState destination_local_scissor =
             scissor_local_to_layer(ctx.scissor_state, destination_layer->bounds);
-        const FbRect destination_local_bounds =
-            local_rect_for_layer(filtered.output_bounds.framebuffer, *destination_layer);
+        const FbRect destination_local_bounds = local_rect_for_layer(
+            final_filter_composite_global_bounds(filtered), *destination_layer);
         if (is_empty(destination_local_bounds)) {
             return;
         }
@@ -388,7 +388,7 @@ void composite_layers_optimized(BgfxLayerSystem& layer_system, const BgfxLayerCo
     // Filter output bounds are global framebuffer coordinates. Convert them exactly once into the
     // destination layer's target-local rectangle before building CompositeOp.
     const FbRect destination_local_bounds =
-        local_rect_for_layer(filtered.output_bounds.framebuffer, *destination_layer);
+        local_rect_for_layer(final_filter_composite_global_bounds(filtered), *destination_layer);
     if (ctx.filter_context.trace_filter_pipeline && has_effective_filters) {
         std::fprintf(
             stderr,

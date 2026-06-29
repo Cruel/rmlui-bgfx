@@ -158,8 +158,8 @@ void trace_filter_chain(const BgfxFilterPipelineContext& ctx,
     });
 }
 
-[[nodiscard]] std::vector<FilterRecord> filter_records_only(
-    const std::vector<ResolvedFilterEntry>& entries)
+[[nodiscard]] std::vector<FilterRecord>
+filter_records_only(const std::vector<ResolvedFilterEntry>& entries)
 {
     std::vector<FilterRecord> records;
     records.reserve(entries.size());
@@ -223,8 +223,8 @@ resolve_filter_entries(const BgfxFilterPipelineContext& ctx,
 }
 
 [[nodiscard]] ResolvedMaskImage resolve_mask_image(const BgfxFilterPipelineContext& ctx,
-                                                  Rml::CompiledFilterHandle handle,
-                                                  const FilterRecord& filter)
+                                                   Rml::CompiledFilterHandle handle,
+                                                   const FilterRecord& filter)
 {
     if (filter.resource != 0) {
         auto tex_it = ctx.textures.find(Rml::TextureHandle(filter.resource));
@@ -264,8 +264,8 @@ resolve_filter_entries(const BgfxFilterPipelineContext& ctx,
         }
         return {};
     }
-    return {record.color, record.global_bounds, record.local_rect, record.texture_width,
-            record.texture_height, record.target_generation};
+    return {record.color,         record.global_bounds,  record.local_rect,
+            record.texture_width, record.texture_height, record.target_generation};
 }
 
 [[nodiscard]] std::array<float, 4> mask_uv_transform(FbRect destination_bounds, FbRect mask_bounds)
@@ -516,8 +516,8 @@ BgfxFilterPipeline::apply_common(const BgfxFilterPipelineContext& ctx, TextureRe
         clamped_work_bounds = intersect(clamped_work_bounds, source_bounds.framebuffer);
     }
     if (ctx.trace_filter_pipeline) {
-        trace_rect("expanded", expanded);
-        trace_rect("work", clamped_work_bounds);
+        trace_rect("expanded_global", expanded);
+        trace_rect("work_global", clamped_work_bounds);
         std::fprintf(stderr, "\n");
     }
     if (is_empty(clamped_work_bounds)) {
@@ -575,6 +575,12 @@ BgfxFilterPipeline::apply_common(const BgfxFilterPipelineContext& ctx, TextureRe
             return {};
         }
         const auto mask_transform = mask_uv_transform(destination->bounds, mask.global_bounds);
+        if (ctx.trace_filter_pipeline) {
+            trace_rect("mask_global", mask.global_bounds);
+            trace_rect("destination_global", destination->bounds);
+            std::fprintf(stderr, " mask_uv=(%.6f,%.6f %.6f,%.6f)\n", mask_transform[0],
+                         mask_transform[1], mask_transform[2], mask_transform[3]);
+        }
         const FbRect source_sample_local =
             texture_local_rect_for_global_rect(source, destination->bounds);
         if (is_empty(source_sample_local)) {
@@ -602,15 +608,14 @@ BgfxFilterPipeline::apply_common(const BgfxFilterPipelineContext& ctx, TextureRe
     if (is_empty(source_copy_global)) {
         return {};
     }
-    const FbRect source_copy_local =
-        texture_local_rect_for_global_rect(source, source_copy_global);
+    const FbRect source_copy_local = texture_local_rect_for_global_rect(source, source_copy_global);
     const FbRect copy_destination =
         local_rect_for_global_rect(source_copy_global, clamped_work_bounds);
     if (ctx.trace_filter_pipeline) {
         std::fprintf(stderr, "[rmlui-bgfx][filter] copy");
         trace_rect("source_global", source_copy_global);
         trace_rect("source_local", source_copy_local);
-        trace_rect("destination", copy_destination);
+        trace_rect("copy_destination_local", copy_destination);
         std::fprintf(stderr, "\n");
     }
     if (auto clear_pass = ctx.pass_builder.layer_clear(primary->framebuffer, primary->texture_width,
@@ -681,6 +686,12 @@ BgfxFilterPipeline::apply_common(const BgfxFilterPipelineContext& ctx, TextureRe
                 return {};
             }
             const auto mask_transform = mask_uv_transform(destination->bounds, mask.global_bounds);
+            if (ctx.trace_filter_pipeline) {
+                trace_rect("mask_global", mask.global_bounds);
+                trace_rect("destination_global", destination->bounds);
+                std::fprintf(stderr, " mask_uv=(%.6f,%.6f %.6f,%.6f)\n", mask_transform[0],
+                             mask_transform[1], mask_transform[2], mask_transform[3]);
+            }
             ok = ctx.draw_context.submit_mask_image(*pass, ctx.resources, current, mask.texture,
                                                     mask_transform);
             current_valid_rect = {0, 0, destination->texture_width, destination->texture_height};
@@ -854,7 +865,7 @@ BgfxFilterPipeline::apply_common(const BgfxFilterPipelineContext& ctx, TextureRe
     if (ctx.trace_filter_pipeline) {
         std::fprintf(stderr, "[rmlui-bgfx][filter] result");
         trace_texture("output", result.output);
-        trace_rect("valid", result.valid_output_bounds.framebuffer);
+        trace_rect("valid_global", result.valid_output_bounds.framebuffer);
         std::fprintf(stderr, "\n");
     }
     return result;

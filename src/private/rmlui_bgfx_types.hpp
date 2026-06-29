@@ -168,6 +168,18 @@ struct LayerRecord {
     return ScissorState{true, clamp_scissor_local(scissor.region, layer_bounds.framebuffer)};
 }
 
+[[nodiscard]] inline LocalFbRect active_stencil_clear_bounds(const LayerRecord& layer,
+                                                             const ScissorState& scissor)
+{
+    if (!scissor.enabled) {
+        return {0, 0, layer.texture_width, layer.texture_height};
+    }
+    const Rml::Rectanglei local_scissor =
+        clamp_scissor_local(scissor.region, layer.bounds.framebuffer);
+    return {local_scissor.Left(), local_scissor.Top(), local_scissor.Width(),
+            local_scissor.Height()};
+}
+
 [[nodiscard]] inline LocalFbRect local_rect_for_layer(GlobalFbRect global_rect,
                                                       const LayerRecord& layer)
 {

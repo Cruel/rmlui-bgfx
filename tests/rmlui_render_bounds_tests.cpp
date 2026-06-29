@@ -1,4 +1,5 @@
 #include "rmlui_bgfx_bounds.hpp"
+#include "rmlui_bgfx_layer_composite_helpers.hpp"
 #include "rmlui_bgfx_mapping.hpp"
 #include "rmlui_bgfx_types.hpp"
 
@@ -807,6 +808,66 @@ TEST_CASE("RmlUi expand_bounds applies filter expansion")
     }
 }
 
+TEST_CASE("RmlUi combined blur and drop-shadow expansion preserves all filter edges")
+{
+    const std::array<FilterExpansion, 2> chain = {
+        {blur_expansion(2.0f), drop_shadow_expansion(3.0f, 4.0f, -5.0f)}};
+    const FilterExpansion total = filter_chain_expansion(chain);
+
+    CHECK(total.left == 15);
+    CHECK(total.top == 20);
+    CHECK(total.right == 19);
+    CHECK(total.bottom == 15);
+
+    const FbRect source{20, 30, 40, 20};
+    const FbRect expanded = expand_bounds(source, total);
+    CHECK(expanded.x == 5);
+    CHECK(expanded.y == 10);
+    CHECK(expanded.w == 74);
+    CHECK(expanded.h == 55);
+}
+
+TEST_CASE("RmlUi filter expansion clamps near surface while preserving valid output metadata")
+{
+    const SurfaceMetrics surface{1280, 720, 1280, 720};
+    const FbRect source{2, 3, 30, 25};
+    const FilterExpansion expansion = drop_shadow_expansion(4.0f, -6.0f, 9.0f);
+    const FbRect expanded = expand_bounds(source, expansion);
+    const FbRect clamped = clamp_to_surface(expanded, surface);
+
+    CHECK(expansion.left == 18);
+    CHECK(expansion.top == 12);
+    CHECK(expansion.right == 12);
+    CHECK(expansion.bottom == 21);
+    CHECK(expanded.x == -16);
+    CHECK(expanded.y == -9);
+    CHECK(expanded.w == 60);
+    CHECK(expanded.h == 58);
+    CHECK(clamped.x == 0);
+    CHECK(clamped.y == 0);
+    CHECK(clamped.w == 44);
+    CHECK(clamped.h == 49);
+
+    const FbRect valid_output = intersect(expanded, clamped);
+    CHECK(valid_output.x == 0);
+    CHECK(valid_output.y == 0);
+    CHECK(valid_output.w == 44);
+    CHECK(valid_output.h == 49);
+}
+
+TEST_CASE("RmlUi final filter composite uses initialized allocation bounds")
+{
+    FilterApplyResult filtered;
+    filtered.output_bounds.framebuffer = {40, 60, 140, 90};
+    filtered.valid_output_bounds.framebuffer = {55, 70, 80, 45};
+
+    const GlobalFbRect composite_bounds = final_filter_composite_global_bounds(filtered);
+    CHECK(composite_bounds.x == 40);
+    CHECK(composite_bounds.y == 60);
+    CHECK(composite_bounds.w == 140);
+    CHECK(composite_bounds.h == 90);
+}
+
 TEST_CASE("RmlUi expand_bounds and clamp_to_surface compose for bounded work areas")
 {
     const SurfaceMetrics surface{1280, 720, 1280, 720};
@@ -1069,6 +1130,66 @@ TEST_CASE("RmlUi bounded texture sampling respects non-zero texture-local origin
     CHECK(sampled.texture_height == 128);
 }
 
+TEST_CASE("RmlUi broad stencil clear bounds use active layer or scissor, not command geometry")
+{
+    LayerRecord layer;
+    layer.bounds.framebuffer = {100, 50, 200, 150};
+    layer.texture_width = 200;
+    layer.texture_height = 150;
+
+    SECTION("no scissor clears the full materialized target")
+    {
+        const LocalFbRect clear = active_stencil_clear_bounds(layer, ScissorState{});
+        CHECK(clear.x == 0);
+        CHECK(clear.y == 0);
+        CHECK(clear.w == 200);
+        CHECK(clear.h == 150);
+    }
+
+    SECTION("enabled scissor is converted to target-local space")
+    {
+        const ScissorState scissor{true, Rml::Rectanglei::FromPositionSize({150, 80}, {75, 60})};
+        const LocalFbRect clear = active_stencil_clear_bounds(layer, scissor);
+        CHECK(clear.x == 50);
+        CHECK(clear.y == 30);
+        CHECK(clear.w == 75);
+        CHECK(clear.h == 60);
+    }
+
+    SECTION("scissor is clamped to the layer")
+    {
+        const ScissorState scissor{true, Rml::Rectanglei::FromPositionSize({50, 25}, {90, 70})};
+        const LocalFbRect clear = active_stencil_clear_bounds(layer, scissor);
+        CHECK(clear.x == 0);
+        CHECK(clear.y == 0);
+        CHECK(clear.w == 40);
+        CHECK(clear.h == 45);
+    }
+
+    SECTION("scissor outside the layer produces an empty clear")
+    {
+        const ScissorState scissor{true, Rml::Rectanglei::FromPositionSize({0, 0}, {20, 20})};
+        CHECK(is_empty(active_stencil_clear_bounds(layer, scissor)));
+    }
+
+    SECTION("small command geometry would not narrow a broad scissor clear")
+    {
+        const ScissorState scissor{true, Rml::Rectanglei::FromPositionSize({120, 70}, {120, 100})};
+        const GlobalFbRect tiny_command_bounds{150, 90, 10, 10};
+        const LocalFbRect broad_clear = active_stencil_clear_bounds(layer, scissor);
+        const LocalFbRect incorrectly_narrowed = local_rect_for_layer(tiny_command_bounds, layer);
+
+        CHECK(broad_clear.x == 20);
+        CHECK(broad_clear.y == 20);
+        CHECK(broad_clear.w == 120);
+        CHECK(broad_clear.h == 100);
+        CHECK(incorrectly_narrowed.x == 50);
+        CHECK(incorrectly_narrowed.y == 40);
+        CHECK(incorrectly_narrowed.w == 10);
+        CHECK(incorrectly_narrowed.h == 10);
+    }
+}
+
 TEST_CASE("RmlUi materialized layer scissor mapping clamps to target-local bounds")
 {
     const GlobalFbRect layer_bounds{100, 50, 200, 150};
@@ -1225,5 +1346,16 @@ TEST_CASE("RmlUi mask UV transform maps global work bounds into saved mask bound
         CHECK(uv[1] == Catch::Approx(144.0f / 96.0f));
         CHECK(uv[2] == Catch::Approx(-76.0f / 96.0f));
         CHECK(uv[3] == Catch::Approx(-16.0f / 96.0f));
+    }
+
+    SECTION("offset destination samples a compact non-zero-origin saved mask")
+    {
+        const FbRect destination{220, 140, 70, 45};
+        const FbRect mask{180, 120, 160, 100};
+        const auto uv = compute_mask_uv_transform(destination, mask);
+        CHECK(uv[0] == Catch::Approx(70.0f / 160.0f));
+        CHECK(uv[1] == Catch::Approx(45.0f / 100.0f));
+        CHECK(uv[2] == Catch::Approx(40.0f / 160.0f));
+        CHECK(uv[3] == Catch::Approx(20.0f / 100.0f));
     }
 }

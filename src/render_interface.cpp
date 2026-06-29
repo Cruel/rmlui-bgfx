@@ -993,8 +993,8 @@ struct RenderInterface::Impl {
                              command.clip_mask_enabled ? 1 : 0, unsigned(command.stencil_ref),
                              command.scissor.enabled ? 1 : 0);
                 if (bounds) {
-                    std::fprintf(stderr, " bounds=(%d,%d %dx%d)", bounds->x, bounds->y, bounds->w,
-                                 bounds->h);
+                    std::fprintf(stderr, " clip_geom_global=(%d,%d %dx%d)", bounds->x, bounds->y,
+                                 bounds->w, bounds->h);
                 } else {
                     std::fprintf(stderr, " bounds=<fallback>");
                 }
@@ -1621,19 +1621,24 @@ struct RenderInterface::Impl {
                BGFX_STENCIL_OP_FAIL_Z_KEEP | BGFX_STENCIL_OP_PASS_Z_REPLACE;
     }
 
-    void clear_active_stencil(uint8_t value, const ScissorState& scissor,
-                              std::optional<FbRect> global_clear_bounds = std::nullopt)
+    void clear_active_stencil(uint8_t value, const ScissorState& scissor)
     {
-        // GL3 clears broadly within the active framebuffer/scissor for Set and SetInverse. The
-        // optimized path currently accepts an optional command-bounds intersection; keep this
-        // deviation visible until a later phase proves or replaces it with the broad-clear model.
+        // GL3 clears broadly within the active framebuffer/scissor for Set and SetInverse. In the
+        // optimized path that broad region is the materialized target-local layer/scissor bounds,
+        // never the clip geometry bounds.
         LayerRecord* layer = current_layer();
         if (!layer)
             return;
-        FbRect clear_bounds = clip_work_bounds(layer, scissor);
-        if (global_clear_bounds) {
-            clear_bounds =
-                intersect(clear_bounds, local_rect_for_layer(*global_clear_bounds, *layer));
+        const FbRect clear_bounds = active_stencil_clear_bounds(*layer, scissor);
+        if (trace_filter_pipeline) {
+            std::fprintf(stderr, "[rmlui-bgfx][stencil] clear value=%u layer=%zu", unsigned(value),
+                         size_t(active_layer));
+            if (scissor.enabled) {
+                std::fprintf(stderr, " scissor_global=(%d,%d %dx%d)", scissor.region.Left(),
+                             scissor.region.Top(), scissor.region.Width(), scissor.region.Height());
+            }
+            std::fprintf(stderr, " clear_local=(%d,%d %dx%d)\n", clear_bounds.x, clear_bounds.y,
+                         clear_bounds.w, clear_bounds.h);
         }
         if (is_empty(clear_bounds))
             return;
@@ -1669,8 +1674,10 @@ struct RenderInterface::Impl {
         LayerRecord* layer = current_layer();
         if (!layer)
             return false;
+        // Normalization decrements the active layer/scissor area broadly, matching the same
+        // target-local stencil clear contract used by Set and SetInverse.
         const FbRect work_bounds =
-            clip_work_bounds(layer, ScissorState{scissor_enabled, scissor_region});
+            active_stencil_clear_bounds(*layer, ScissorState{scissor_enabled, scissor_region});
         if (is_empty(work_bounds))
             return true;
         auto pass =
@@ -1737,14 +1744,13 @@ struct RenderInterface::Impl {
         switch (command.operation) {
         case Rml::ClipMaskOperation::Set:
             // GL3 clears broadly within the active framebuffer/scissor before replacing through
-            // geometry. This optimized path still narrows to command bounds; keep that deviation
-            // explicit until a later phase validates or replaces it with the broad-clear model.
-            clear_active_stencil(0, command.scissor, command_bounds);
+            // geometry. Do not narrow this clear to command geometry bounds.
+            clear_active_stencil(0, command.scissor);
             submit_to_clip_mask(it->second, command.translation, stencil_replace_state(1),
                                 command.scissor, command.transform_valid, command.transform);
             break;
         case Rml::ClipMaskOperation::SetInverse:
-            clear_active_stencil(1, command.scissor, command_bounds);
+            clear_active_stencil(1, command.scissor);
             submit_to_clip_mask(it->second, command.translation, stencil_replace_state(0),
                                 command.scissor, command.transform_valid, command.transform);
             break;

@@ -76,4 +76,14 @@ filter_window_bounds(const BgfxLayerCompositeContext& ctx)
     return texture_subregion_for_global_rect(region, global_bounds);
 }
 
+[[nodiscard]] inline GlobalFbRect
+final_filter_composite_global_bounds(const FilterApplyResult& filtered)
+{
+    // Preserve GL3's final postprocess draw semantics by compositing the initialized filter output
+    // allocation. `valid_output_bounds` remains available as tighter metadata for later reasoning,
+    // but using it for the final draw can clip blur/drop-shadow padding that GL3 would draw as
+    // initialized transparent pixels.
+    return filtered.output_bounds.framebuffer;
+}
+
 } // namespace rmlui_bgfx
