@@ -82,6 +82,28 @@ TEST_CASE("RmlUi postprocess pool does not consume layer handles")
     CHECK(layers.push() == 2);
 }
 
+TEST_CASE("RmlUi postprocess roles stay independent like GL3 named framebuffers")
+{
+    PostprocessPoolPlan postprocess;
+
+    postprocess.mark_allocated(PostprocessTargetKind::Primary);
+    postprocess.mark_allocated(PostprocessTargetKind::Secondary);
+    postprocess.mark_allocated(PostprocessTargetKind::Tertiary);
+    postprocess.mark_allocated(PostprocessTargetKind::BlendMask);
+    postprocess.mark_allocated(PostprocessTargetKind::Scratch);
+
+    CHECK(postprocess.allocated(PostprocessTargetKind::Primary));
+    CHECK(postprocess.allocated(PostprocessTargetKind::Secondary));
+    CHECK(postprocess.allocated(PostprocessTargetKind::Tertiary));
+    CHECK(postprocess.allocated(PostprocessTargetKind::BlendMask));
+    CHECK(postprocess.allocated(PostprocessTargetKind::Scratch));
+    CHECK(postprocess.allocation_count() == PostprocessPoolPlan::TargetCount);
+
+    postprocess.mark_allocated(PostprocessTargetKind::Primary);
+    postprocess.mark_allocated(PostprocessTargetKind::BlendMask);
+    CHECK(postprocess.allocation_count() == PostprocessPoolPlan::TargetCount);
+}
+
 TEST_CASE("RmlUi resize bookkeeping recreates layer and postprocess resources independently")
 {
     LayerPoolPlan layers;
@@ -108,7 +130,7 @@ TEST_CASE("RmlUi stencil planner never treats depth-only fallback as stencil")
     CHECK(choose_stencil_plan(false, false) == StencilPlan::Unsupported);
 }
 
-TEST_CASE("RmlUi base presentation policy prefers direct backbuffer only when safe")
+TEST_CASE("RmlUi base presentation policy preserves GL3 root-layer semantics")
 {
     const auto direct = choose_base_presentation_policy(true, true, false, true, false);
     CHECK(direct.mode == BasePresentationMode::DirectToBackbuffer);
@@ -118,6 +140,10 @@ TEST_CASE("RmlUi base presentation policy prefers direct backbuffer only when sa
     CHECK(no_request.mode == BasePresentationMode::Offscreen);
     REQUIRE(no_request.fallback_reason != nullptr);
 
+    const auto no_capability = choose_base_presentation_policy(true, false, false, true, false);
+    CHECK(no_capability.mode == BasePresentationMode::Offscreen);
+    REQUIRE(no_capability.fallback_reason != nullptr);
+
     const auto no_stencil = choose_base_presentation_policy(true, true, false, false, false);
     CHECK(no_stencil.mode == BasePresentationMode::Offscreen);
     REQUIRE(no_stencil.fallback_reason != nullptr);
@@ -125,10 +151,16 @@ TEST_CASE("RmlUi base presentation policy prefers direct backbuffer only when sa
     const auto needs_root = choose_base_presentation_policy(true, true, true, true, false);
     CHECK(needs_root.mode == BasePresentationMode::Offscreen);
     REQUIRE(needs_root.fallback_reason != nullptr);
+
+    const auto webgl_feedback = choose_base_presentation_policy(true, true, false, true, true);
+    CHECK(webgl_feedback.mode == BasePresentationMode::Offscreen);
+    REQUIRE(webgl_feedback.fallback_reason != nullptr);
 }
 
-TEST_CASE("RmlUi clip stencil planner normalizes overflow without discarding history")
+TEST_CASE("RmlUi clip stencil planner matches GL3 Set/Intersect reference transitions")
 {
+    // GL3 Set and SetInverse both reset history through a broad clear, then write a replacement
+    // value through geometry. Probe 23 remains the visual guard for stale stencil leakage.
     const auto set = plan_stencil_clip_operation(37, ClipOperationPlan::Set);
     CHECK(set.previous_ref == 1);
     CHECK(set.next_ref == 1);
@@ -138,6 +170,11 @@ TEST_CASE("RmlUi clip stencil planner normalizes overflow without discarding his
     CHECK(inverse.previous_ref == 1);
     CHECK(inverse.next_ref == 1);
     CHECK_FALSE(inverse.normalize_before_render);
+
+    const auto first_intersect = plan_stencil_clip_operation(1, ClipOperationPlan::Intersect);
+    CHECK(first_intersect.previous_ref == 1);
+    CHECK(first_intersect.next_ref == 2);
+    CHECK_FALSE(first_intersect.normalize_before_render);
 
     const auto normal_intersect = plan_stencil_clip_operation(253, ClipOperationPlan::Intersect);
     CHECK(normal_intersect.previous_ref == 253);
@@ -274,15 +311,25 @@ TEST_CASE("RmlUi color-only filter chains can fold into final composite")
 
 TEST_CASE("RmlUi color-only filter folding rejects texture-dependent filters")
 {
-    std::vector<FilterRecord> chain{make_brightness_filter(1.1f)};
+    auto rejected_plan = [](FilterRecord filter) {
+        std::vector<FilterRecord> chain{make_brightness_filter(1.1f), filter};
+        return plan_color_only_filter_chain(simplify_filter_chain(chain));
+    };
+
     FilterRecord blur;
     blur.kind = FilterKind::Blur;
     blur.sigma = 2.0f;
-    chain.push_back(blur);
+    CHECK_FALSE(rejected_plan(blur).eligible);
 
-    const ColorOnlyFilterPlan plan = plan_color_only_filter_chain(simplify_filter_chain(chain));
+    FilterRecord drop_shadow;
+    drop_shadow.kind = FilterKind::DropShadow;
+    drop_shadow.sigma = 2.0f;
+    CHECK_FALSE(rejected_plan(drop_shadow).eligible);
 
-    CHECK_FALSE(plan.eligible);
+    FilterRecord mask;
+    mask.kind = FilterKind::MaskImage;
+    mask.mask_bounds = {0, 0, 10, 10};
+    CHECK_FALSE(rejected_plan(mask).eligible);
 }
 
 TEST_CASE("RmlUi color matrix helper uses row-major RGB rows with translation")

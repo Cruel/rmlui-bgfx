@@ -61,6 +61,9 @@ void RmlUiRenderPassScheduler::reset()
 
 bool RmlUiRenderPassScheduler::can_reuse_current_pass(const RmlUiPassRequest& request) const
 {
+    // bgfx view reuse is constrained by GL3 ordering semantics. Clears are barriers, and only
+    // geometry-like draws may merge into a preceding compatible clear view; composites/copies and
+    // postprocess passes stay separate unless their exact non-clear framebuffer/viewport matches.
     if (!m_current || request.clears_color || request.clears_stencil) {
         return false;
     }

@@ -36,6 +36,10 @@ private:
     uint32_t m_allocation_count = 1;
 };
 
+// Semantic postprocess roles mirror RmlUi's GL3 backend: primary is the resolved/filter
+// source-destination, secondary and tertiary are ordered ping-pong/filter temporaries, blend-mask
+// owns SaveLayerAsMaskImage output, and scratch is for explicit feedback-loop copies. These are
+// not anonymous interchangeable cache slots even when the optimized path uses bounded targets.
 enum class PostprocessTargetKind {
     Primary,
     Secondary,
@@ -58,6 +62,9 @@ private:
     uint32_t m_allocation_count = 0;
 };
 
+// Ordinary external/generated textures and SaveLayerAsTexture results release their handles
+// through RmlUi texture lifetime. Layer attachments and postprocess targets are renderer-owned;
+// SaveLayerAsMaskImage is a filter/blend-mask resource, not ordinary saved texture ownership.
 enum class TextureOwnership {
     External,
     SavedLayer,
@@ -105,6 +112,9 @@ enum class ClipOperationPlan {
     Intersect,
 };
 
+// GL3 treats Set/SetInverse as broad stencil resets followed by replacement writes, while
+// Intersect increments the active reference. Overflow normalization keeps that history explicit
+// before continuing at a safe low reference value.
 struct StencilClipPlan {
     uint8_t previous_ref = 1;
     uint8_t next_ref = 1;

@@ -88,7 +88,12 @@ struct LayerRecord {
     GlobalFbRect valid_content_bounds;
     bool has_valid_content_bounds = false;
     ConservativeMaskBounds conservative_mask_bounds;
+    // GL3 keeps layer targets viewport-sized, so transformed child content never needs to be
+    // rebased into a bounded target. Until bounded transformed replay is fully validated, this
+    // flag forces conservative/full-frame materialization for transformed recorded content.
     bool content_bounds_transform_fallback = false;
+    // Inverse clip masks can make "valid content" be everything outside the geometry. Keep the
+    // conservative container explicit instead of shrinking work to the inverse geometry bounds.
     bool content_bounds_inverse_mask_fallback = false;
     int texture_width = 0;
     int texture_height = 0;
@@ -109,6 +114,9 @@ struct LayerRecord {
     std::vector<RecordedDrawCommand> commands;
 };
 
+// These helpers define the optimized path's per-materialization mapping contract. The input
+// rectangles are global framebuffer coordinates unless named Local*, and local output is relative
+// to the materialized layer target origin, not the viewport origin.
 [[nodiscard]] inline Rml::Rectanglei clamp_scissor_local(Rml::Rectanglei global_scissor,
                                                          const GlobalFbRect& layer_fb_bounds)
 {
@@ -164,6 +172,7 @@ struct LayerRecord {
 }
 
 struct RenderTargetRecord {
+    // Semantic postprocess role. Reusing a physical target must preserve this role identity.
     bgfx::FrameBufferHandle framebuffer = BGFX_INVALID_HANDLE;
     bgfx::TextureHandle color = BGFX_INVALID_HANDLE;
     GlobalFbRect bounds;

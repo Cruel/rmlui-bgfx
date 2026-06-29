@@ -46,6 +46,8 @@ Visual renderer fixes require manual comparison against RmlUi GL3. Automated tes
 
 ## Render paths
 
+Before modifying the optimized renderer path, read `docs/OPTIMIZED_RENDERER_ARCHITECTURE.md`. That document defines the optimized path's architecture, target/lifetime/mapping contracts, full-frame fallback policy, and review checklist. Do not make visual bugs pass by adding undocumented full-frame passes or anonymous target reuse.
+
 The renderer has two runtime paths:
 
 - `reference`: correctness-first, GL3-compatible behavior. This is the default.

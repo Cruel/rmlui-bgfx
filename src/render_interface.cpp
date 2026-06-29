@@ -1154,6 +1154,9 @@ struct RenderInterface::Impl {
 
     bool begin_base_layer()
     {
+        // GL3 always renders through an offscreen root layer and presents that layer at frame end.
+        // Direct base presentation is an optimized-path shortcut only when preservation, stencil,
+        // MSAA, and WebGL feedback-loop constraints prove it is semantically safe.
         release_deferred_geometries();
         perf.reset();
         direct_base_presented = false;
@@ -1466,6 +1469,9 @@ struct RenderInterface::Impl {
                                                int source_height, const char* name,
                                                bool flip_y = false)
     {
+        // SaveLayerAsTexture follows GL3's texture convention: the saved result is vertically
+        // flipped relative to layer framebuffer space, with origin-bottom-left handled at the copy
+        // boundary rather than contaminating global framebuffer coordinates.
         if (region.Width() <= 0 || region.Height() <= 0 || !bgfx::isValid(source))
             return BGFX_INVALID_HANDLE;
         Rml::Rectanglei sample_region = region;
@@ -1612,6 +1618,9 @@ struct RenderInterface::Impl {
     void clear_active_stencil(uint8_t value, const ScissorState& scissor,
                               std::optional<FbRect> global_clear_bounds = std::nullopt)
     {
+        // GL3 clears broadly within the active framebuffer/scissor for Set and SetInverse. The
+        // optimized path currently accepts an optional command-bounds intersection; keep this
+        // deviation visible until a later phase proves or replaces it with the broad-clear model.
         LayerRecord* layer = current_layer();
         if (!layer)
             return;
@@ -1686,6 +1695,9 @@ struct RenderInterface::Impl {
                              bool command_transform_valid,
                              const std::array<float, 16>& command_transform)
     {
+        // Clip-mask draws are stencil writes, not ordinary color rendering. GL3 disables color
+        // writes for this pass; bgfx expresses the same intent through stencil-only state and a
+        // white texture/program path at submission.
         if (frame_failed || !bgfx::isValid(program) || geometry.index_count == 0 ||
             pass_builder.exhausted())
             return;
@@ -1718,9 +1730,9 @@ struct RenderInterface::Impl {
                               command.transform_valid, command.transform);
         switch (command.operation) {
         case Rml::ClipMaskOperation::Set:
-            // Clear the stencil only where this clip command can write. The geometry pass will
-            // replace pixels inside the same bounds, so stale stencil outside the command remains
-            // outside the command's own contribution.
+            // GL3 clears broadly within the active framebuffer/scissor before replacing through
+            // geometry. This optimized path still narrows to command bounds; keep that deviation
+            // explicit until a later phase validates or replaces it with the broad-clear model.
             clear_active_stencil(0, command.scissor, command_bounds);
             submit_to_clip_mask(it->second, command.translation, stencil_replace_state(1),
                                 command.scissor, command.transform_valid, command.transform);

@@ -28,10 +28,10 @@ void BgfxTargetCache::set_perf_counters(PerfCounters* perf) { m_perf = perf; }
 
 void BgfxTargetCache::begin_frame()
 {
-    // Postprocess targets are cheap scratch resources compared to the correctness hazards of
-    // retaining an unbounded set of differently sized bounded targets while scrolling through
-    // effect-heavy documents. Keep layer targets cached by slot, but reset postprocess scratch
-    // targets each frame until this is replaced by a bounded LRU/per-frame pool.
+    // GL3 keeps fixed-role postprocess targets viewport-scoped, but the optimized path currently
+    // resets bounded postprocess scratch targets per frame to avoid unbounded growth from scrolling
+    // bounds. Phase 2/4 should replace this interim policy with explicit frame/viewport lifetimes.
+    // Layer targets remain slot/size cached, matching the GL3 stack-depth reuse model.
     destroy_postprocess_targets();
 }
 
@@ -243,6 +243,8 @@ RenderTargetRecord* BgfxTargetCache::acquire_postprocess_target(PostprocessTarge
                                                                 FbRect bounds,
                                                                 const SurfaceMetrics& surface)
 {
+    // The role is part of the target identity. A Primary-sized target and a BlendMask-sized target
+    // are not interchangeable even when their physical dimensions match.
     const FbRect clamped_bounds =
         clamp_to_surface(align_outward_for_render_target(bounds), surface);
     if (is_empty(clamped_bounds)) {

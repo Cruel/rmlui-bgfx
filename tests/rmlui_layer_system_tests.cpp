@@ -274,12 +274,14 @@ TEST_CASE("RmlUi nested layer pop restores exact parent handles")
     CHECK(layer_system.current_layer()->push_transform_valid);
     CHECK(layer_system.current_layer()->clip_mask_enabled);
     CHECK(layer_system.current_layer()->stencil_ref == 3);
+    CHECK(layer_system.current_layer()->inherited_clip_command_count == 2);
 
     REQUIRE(layer_system.pop_layer());
     CHECK(layer_system.active_layer() == 0);
     CHECK(layer_system.current_layer() == &root);
     CHECK(layer_system.current_layer()->clip_mask_enabled);
     CHECK(layer_system.current_layer()->stencil_ref == 3);
+    CHECK(layer_system.current_layer()->clip_commands.size() == 2);
 
     CHECK(!layer_system.pop_layer());
     CHECK(layer_system.active_layer() == 0);

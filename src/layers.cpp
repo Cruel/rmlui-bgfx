@@ -247,6 +247,9 @@ void BgfxLayerSystem::composite_layers(const BgfxLayerCompositeContext& ctx,
 
 Rml::TextureHandle BgfxLayerSystem::save_layer_as_texture(const BgfxLayerSaveTextureContext& ctx)
 {
+    // GL3 defines this operation by the current scissor rectangle, not by content bounds. Preserve
+    // the requested output size and pad/copy overlap explicitly when optimized materialization is
+    // tighter than the callback texture bounds.
     if (ctx.direct_base_requested && size_t(m_active_layer) == 0) {
         if (ctx.root_requires_preservation) {
             *ctx.root_requires_preservation = true;
@@ -319,6 +322,9 @@ Rml::TextureHandle BgfxLayerSystem::save_layer_as_texture(const BgfxLayerSaveTex
 Rml::CompiledFilterHandle
 BgfxLayerSystem::save_layer_as_mask_image(const BgfxLayerSaveMaskContext& ctx)
 {
+    // GL3 saves into a renderer-owned blend-mask target and returns a MaskImage filter, not an
+    // ordinary saved texture. Phase 3 should replace the current resource=0+bounds convention with
+    // an explicit SavedMaskRecord keyed by the returned filter handle and target generation.
     if (ctx.direct_base_requested && size_t(m_active_layer) == 0) {
         if (ctx.root_requires_preservation) {
             *ctx.root_requires_preservation = true;

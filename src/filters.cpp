@@ -411,6 +411,9 @@ BgfxFilterPipeline::apply_common(const BgfxFilterPipelineContext& ctx, TextureRe
     }
     trace_filter_chain(ctx, filter_chain);
 
+    // GL3 physically ping-pongs even simple color filters. The optimized path may fold only
+    // color/opacity chains into the later composite because those filters do not sample neighboring
+    // pixels or renderer-owned mask resources.
     const ColorOnlyFilterPlan color_only_plan = plan_color_only_filter_chain(filter_chain);
     if (color_only_plan.eligible) {
         result.composite_filter.enabled = true;
@@ -437,6 +440,7 @@ BgfxFilterPipeline::apply_common(const BgfxFilterPipelineContext& ctx, TextureRe
     if (is_empty(clamped_work_bounds)) {
         return {};
     }
+    // Preserve GL3's ordered postprocess roles even when the physical targets are bounded.
     RenderTargetRecord* primary = ctx.target_cache.acquire_postprocess_target(
         PostprocessTargetKind::Primary, clamped_work_bounds, ctx.surface);
     RenderTargetRecord* secondary = ctx.target_cache.acquire_postprocess_target(
@@ -465,6 +469,8 @@ BgfxFilterPipeline::apply_common(const BgfxFilterPipelineContext& ctx, TextureRe
     }
 
     if (filter_chain.size() == 1 && filter_chain[0].kind == FilterKind::MaskImage) {
+        // Phase 3 should resolve this through an explicit SavedMaskRecord instead of rediscovering
+        // a BlendMask target by kind/bounds.
         const bgfx::TextureHandle mask_texture = resolve_mask_texture(ctx, filter_chain[0]);
         if (!bgfx::isValid(mask_texture)) {
             return {};

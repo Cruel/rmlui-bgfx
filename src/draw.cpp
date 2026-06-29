@@ -177,6 +177,8 @@ bool BgfxDrawContext::submit_composite(const RmlUiPass& pass, const BgfxDrawReso
         bgfx::setUniform(resources.opacity_uniform, opacity);
         bgfx::setUniform(resources.color_matrix_uniform, op.filter.color_matrix.data());
     }
+    // GL3 disables blending for BlendMode::Replace and restores premultiplied alpha blending for
+    // normal composites. Mirror that split explicitly instead of treating replace as alpha blend.
     const uint64_t state = op.blend_mode == Rml::BlendMode::Replace
                                ? (BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A)
                                : resources.blend_state;

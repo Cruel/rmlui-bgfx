@@ -2,6 +2,8 @@
 
 ## Purpose
 
+Read `docs/OPTIMIZED_RENDERER_ARCHITECTURE.md` before implementing this plan. That document is the durable architecture and guardrail reference for the optimized renderer path; this file is the phased implementation plan for the bounded transformed-layer refactor.
+
 The optimized bgfx renderer has accumulated correctness fixes, performance fixes, diagnostics, and partial bounded-layer work in ways that are now too brittle. The immediate goal is not to add another local patch. The goal is to refactor the optimized renderer around explicit contracts that match RmlUi's GL3 backend semantics first, and only then apply bounded-rendering and caching optimizations in controlled places.
 
 The optimized renderer must keep the separate `reference` and `optimized` paths. This plan is for the optimized path. The reference path remains a correctness comparison path and must not be collapsed into the optimized renderer.
@@ -86,85 +88,106 @@ Important implication for bgfx: bounded transformed layers are a real optimizati
 6. Do not optimize by hiding counters. Counters should describe the actual work performed.
 7. Do not introduce cross-frame caching until per-frame correctness is stable and tested.
 
+## Implementation posture
+
+This plan is an architectural safety rail, not a mandate to build a large renderer framework up front. The optimized path already has some of the right pieces in implicit form: `PostprocessTargetKind`, `RenderBounds`, `GlobalFbRect`, `LocalFbRect`, and global/local helper functions. The refactor should expose and tighten those contracts before introducing new abstractions.
+
+Near-term work should prefer small, auditable changes:
+
+- make hidden target lifetime/role assumptions explicit;
+- make saved-mask ownership explicit;
+- keep existing `TextureRecord` saved-texture ownership unless a concrete bug proves it insufficient;
+- reuse existing mapping helpers where possible before adding a heavier `LayerSpaceMapping` type;
+- keep bounded transformed layers disabled until non-transformed bounded replay, mask-image, save-texture, stencil, and postprocess reuse are predictable.
+
+The optimized equivalent of GL3 is not "always allocate full-frame postprocess targets." It is "preserve GL3's semantic roles while allowing physical allocations to be bounded when the role, lifetime, bounds, and coordinate mapping are explicit."
+
 ## Core contracts to introduce
 
-### 1. `RenderTargetRole`
+### 1. Target role metadata
 
-Define target roles independently from cache storage:
+The current `PostprocessTargetKind` model is a good starting point. Extend it only as needed instead of replacing it with a broad role taxonomy immediately.
 
-- `LayerColorMsaa`: active layer target with stencil/depth attachment.
-- `LayerResolvedColor`: optional resolved layer texture if MSAA needs resolve before sampling.
-- `PostprocessPrimary`.
-- `PostprocessSecondary`.
-- `PostprocessTertiary`.
-- `SavedBlendMask`.
-- `ScratchCopy`.
-- `BackdropCopy`.
+Minimum roles for the first refactor slice:
 
-Each role must define whether it can be sampled, whether it can be written more than once per frame, whether it can be reused in the same frame, and whether it may alias another role.
+- layer color/depth-stencil attachments;
+- `Primary`;
+- `Secondary`;
+- `Tertiary`;
+- `BlendMask`;
+- `Scratch`.
+
+Add more roles such as backdrop/copy roles only when a concrete code path needs to distinguish ownership or lifetime. Each role should document whether it may be sampled, whether it may be overwritten in the same frame, whether it can alias another role, and whether it is allowed to use bounded physical dimensions.
 
 ### 2. `TargetLifetime`
 
-Every target allocation should be one of:
+Every target allocation should be classified as one of:
 
-- `Frame`: destroyed or returned to a per-frame pool at `begin_frame()`.
-- `Viewport`: reused while framebuffer dimensions are unchanged, destroyed on resize.
+- `Frame`: reusable only inside the current frame, reset at `begin_frame()`.
+- `Viewport`: reusable while framebuffer dimensions are unchanged, destroyed on resize.
 - `PersistentCache`: retained across frames with an explicit bounded cache key and eviction policy.
 - `External`: owned by RmlUi/user texture management.
 
-Initial refactor should prefer `Frame` and `Viewport`. `PersistentCache` should be added only after metrics prove it is necessary and after a bounded eviction rule is defined.
+Initial implementation should use only `Frame`, `Viewport`, and `External`. `PersistentCache` is deliberately deferred. Do not add it merely to reduce allocation counters; add it only after correctness is stable and metrics show that a bounded cache is necessary.
 
-### 3. `TargetDescriptor`
+### 3. Compact target descriptor
 
-All target acquisition should use a single descriptor:
+Centralize framebuffer creation behind a compact descriptor, but do not introduce a complex lease system unless the code needs it.
 
-- role,
-- lifetime,
-- global bounds,
-- target size,
-- MSAA sample count,
-- texture format,
-- stencil/depth requirement,
-- whether sampling is needed,
+The descriptor should carry:
+
+- role/kind;
+- lifetime;
+- global bounds;
+- target size;
+- MSAA sample count;
+- texture format;
+- stencil/depth requirement;
+- sampling requirement;
+- generation;
 - debug label/reason.
 
-Framebuffer creation should be centralized through this descriptor so allocation failures can report the same fields consistently.
+The immediate goal is one allocation path and consistent failure logs, not a general-purpose resource manager.
 
-### 4. `LayerSpaceMapping`
+### 4. Coordinate mapping contract
 
-A materialized layer plan should contain:
+The existing `RenderBounds`, `GlobalFbRect`, `LocalFbRect`, `local_rect_for_layer()`, `global_rect_for_layer()`, and `clamp_scissor_local()` helpers should be treated as the first mapping contract. Add a separate `LayerSpaceMapping` type only if these helpers become insufficient.
 
-- `global_bounds`: framebuffer-space rectangle covered by the target.
-- `logical_bounds`: logical-space equivalent.
-- `target_origin`: framebuffer-space origin of the target.
-- `texture_width` / `texture_height`.
-- `full_frame_fallback_reason` or `None`.
-- helpers for `global_to_local`, `local_to_global`, `scissor_to_local`, and UV-region conversion.
+The contract must still be explicit per materialization:
 
-The mapping is per materialization, per frame. It is not a cross-frame cache until proven safe.
+- framebuffer/global rectangle covered by the target;
+- logical equivalent;
+- target-local origin and texture dimensions;
+- global-to-local conversion;
+- local-to-global conversion;
+- scissor conversion;
+- UV-region conversion;
+- full-frame fallback reason, when applicable.
 
-### 5. `SavedMaskRecord` and `SavedTextureRecord`
+The mapping is per materialization, per frame. It is not a cross-frame cache.
 
-Saved textures and saved masks need explicit records, not implicit target lookup by kind/bounds.
+### 5. `SavedMaskRecord`
+
+Saved masks need explicit ownership records. This is the highest-priority missing contract.
 
 A saved mask record should store:
 
-- filter handle,
-- target role/handle/generation,
-- global mask bounds,
-- target-local mask rect,
-- source layer generation,
+- filter handle;
+- target role/kind;
+- target handle or stable target id;
+- target generation;
+- global mask bounds;
+- target-local mask rect;
+- source layer generation or materialization id;
 - whether it was full-frame or bounded.
 
-A saved texture record should store:
+`MaskImage` filter resolution must use this record. It must not call `acquire_postprocess_target()` to rediscover a mask by kind and bounds.
 
-- texture handle,
-- dimensions,
-- source global bounds,
-- target-local copy region,
-- ownership.
+### 6. Saved textures stay on `TextureRecord` unless proven insufficient
 
-This makes the radial sphere and scrolling `.mask` cases explicit instead of relying on accidental target reuse.
+Saved textures already flow through `TextureRecord` with `TextureOwnership::SavedLayer`. Do not add a parallel saved-texture registry unless a specific bug requires extra metadata. If that happens, extend `TextureRecord` or add a small sidecar record containing source global bounds and target-local copy region.
+
+This keeps the near-term refactor focused on the actual fragile path: saved mask-image ownership.
 
 ## Implementation phases
 
@@ -210,21 +233,22 @@ Add comments and CPU tests for the intended bgfx equivalents of GL3 behavior:
 
 No rendering behavior should change in this phase.
 
-### Phase 2: centralize target allocation behind descriptors
+### Phase 2: centralize target allocation metadata, not a full resource framework
 
-Refactor `BgfxTargetCache` so all layer and postprocess allocation goes through `TargetDescriptor` and returns a `TargetLease` or `TargetHandle` with role, lifetime, size, and generation.
+Refactor `BgfxTargetCache` so layer and postprocess allocation records carry role/kind, lifetime, size, bounds, and generation. A compact `TargetDescriptor` is useful if it reduces duplicated allocation code, but this phase should not introduce a complex lease manager or persistent cache.
 
 Rules:
 
-- Layer targets are frame-scoped by default.
-- Postprocess targets are viewport-scoped fixed-role by default, mirroring GL3.
-- Bounded postprocess targets are allowed only through an explicit bounded descriptor.
-- Persistent reuse of arbitrary sizes is disabled until an eviction policy is part of the descriptor model.
-- Allocation failure logs come from the descriptor and include role, lifetime, bounds, size, MSAA, format, and reason.
+- Layer targets may continue to be cached by slot when that is already safe, but each materialization must have a current generation and immutable bounds.
+- Postprocess targets must preserve fixed semantic roles (`Primary`, `Secondary`, `Tertiary`, `BlendMask`, `Scratch`). Their physical size may be bounded.
+- Viewport-scoped targets are destroyed on resize.
+- Frame-scoped bounded targets are reset at `begin_frame()` or reused through a bounded in-frame pool.
+- Persistent reuse of arbitrary sizes is disabled.
+- Allocation failure logs include role/kind, lifetime, bounds, size, MSAA, format, and reason.
 
-This phase should remove ad hoc allocation paths before adding new optimizations.
+This phase should remove ad hoc allocation paths before adding new optimizations. It should not make the renderer broader than necessary.
 
-### Phase 3: implement explicit saved mask and saved texture records
+### Phase 3: implement explicit saved mask records
 
 Replace implicit saved-mask resolution with `SavedMaskRecord`.
 
@@ -235,6 +259,7 @@ Required behavior:
 - General filter-chain path remains the only optimized `MaskImage` path until equivalence is proven.
 - Full-frame GL3-compatible saved mask mode remains available as the baseline.
 - Bounded saved mask mode must carry mapping data and be behind validation/toggle until tests pass.
+- Saved textures stay on `TextureRecord` unless a concrete correctness bug requires more metadata.
 
 Validation cases:
 
@@ -243,31 +268,52 @@ Validation cases:
 - transform plus mask-image probe;
 - resize readback reference and optimized.
 
-### Phase 4: introduce `LayerSpaceMapping` without changing output
+### Phase 4: stop postprocess allocation churn with bounded lifetime rules
 
-Add pure mapping helpers and CPU tests:
+Once target records have explicit roles and generations, replace per-frame destroy/recreate behavior with predictable reuse.
+
+Rules:
+
+- Viewport-scoped full-frame role targets may be reused until resize.
+- Frame-scoped bounded targets may be reused inside a frame when role, size, and feedback-loop constraints allow it.
+- Cross-frame bounded reuse requires a small bounded policy and is deferred unless metrics prove it is necessary.
+- Scrolling through many slightly different filter bounds must not create unbounded memory growth.
+- Counters must continue to report real allocation/reuse/full-frame/bounded work.
+
+Validation:
+
+- effects sample scrolling;
+- readback gallery;
+- web smoke allocation counters;
+- resize stress with no stale target sizes.
+
+### Phase 5: formalize coordinate mapping using existing helpers first
+
+Add pure mapping tests around the existing `RenderBounds`, `GlobalFbRect`, `LocalFbRect`, `local_rect_for_layer()`, `global_rect_for_layer()`, and `clamp_scissor_local()` helpers before introducing a new `LayerSpaceMapping` type.
+
+Test coverage:
 
 - global-to-local and local-to-global round trips;
 - scissor conversion;
-- transformed geometry bounds;
 - parent/scissor intersection;
 - empty and fractional bounds;
-- full-frame fallback mapping.
+- full-frame fallback mapping;
+- transformed geometry bounds as a fallback/input to later work.
 
-Wire plans into layer records but keep existing full-frame transformed fallback. This phase should not make web-smoke metrics better yet. It should only make internal state explicit.
+If the helper set becomes too diffuse, introduce a small `LayerSpaceMapping` wrapper around the existing data. Do not change output in this phase.
 
-### Phase 5: rebase non-transformed bounded layer replay
+### Phase 6: audit non-transformed bounded layer replay against the mapping contract
 
-Apply `LayerSpaceMapping` to non-transformed commands first:
+Apply the explicit mapping contract to non-transformed commands first:
 
-- geometry translation,
-- gradient/material shader translation,
-- scissor conversion,
-- layer clears,
-- saved texture copies,
+- geometry translation;
+- gradient/material shader translation;
+- scissor conversion;
+- layer clears;
+- saved texture copies;
 - composite source/destination rectangles.
 
-This is the first phase where bounded rendering should produce real performance improvement, but only for non-transformed content. Transform fallback remains.
+This phase may produce performance improvement, but the main goal is to make current bounded replay auditable and predictable. Transform fallback remains.
 
 Validation:
 
@@ -277,31 +323,20 @@ Validation:
 - no framebuffer spam;
 - no metric suppression.
 
-### Phase 6: rebase clip masks and stencil clears
+### Phase 7: rebase clip masks, stencil clears, filters, and composites only after mapping is stable
 
-This is high risk.
+This is high risk and should be split into small commits if implemented.
 
 Rules:
 
 - Preserve GL3 broad `Set` and `SetInverse` semantics.
 - Convert broad clear regions into target-local coordinates only at the submission boundary.
 - Do not clear only command geometry bounds unless a specific probe proves equivalence.
+- Keep filter planning in global framebuffer space, then convert at draw/read/write boundaries.
 - Keep stencil reference overflow normalization explicit.
+- Do not optimize mask-image separately yet. Use the saved-mask record from Phase 3.
 
-Validation must include rounded clips, inset shadows, inverse masks, and probe `23`.
-
-### Phase 7: rebase filter chains and composites
-
-Keep filter planning in global framebuffer space, but convert at draw/read/write boundaries:
-
-- source global rect to source local rect;
-- destination global rect to destination local rect;
-- UV rect for sampled texture regions;
-- blur/drop-shadow expansion;
-- backdrop copy bounds;
-- final composite bounds.
-
-Do not optimize mask-image separately yet. Use the saved-mask record from Phase 3.
+Validation must include rounded clips, inset shadows, inverse masks, blur/drop-shadow expansion, backdrop copy bounds, final composite bounds, and probe `23`.
 
 ### Phase 8: bounded transformed layers behind a toggle
 
@@ -317,6 +352,7 @@ The transformed plan must account for:
 - per-command transform;
 - translation in the same coordinate space as the transform;
 - saved texture callback bounds;
+- saved mask bounds;
 - clips and stencil clears;
 - filter expansion;
 - final composite.
@@ -397,10 +433,11 @@ Manual stress validation:
 
 The refactor is complete when:
 
-- optimized renderer has explicit target roles and lifetimes;
-- saved masks and saved textures have explicit ownership records;
-- materialized layers have explicit coordinate mappings;
-- transformed layers either use a documented fallback or a validated bounded mapping;
+- optimized renderer has explicit target roles/kinds, lifetimes, and generations;
+- saved masks have explicit ownership records and never resolve by anonymous kind/bounds lookup;
+- saved textures remain correct through `TextureRecord` ownership or a justified minimal extension;
+- materialized layers have explicit coordinate mappings, preferably through the existing helper model;
+- transformed layers either use a documented full-frame fallback or a validated bounded mapping;
 - probe `23` remains visually correct;
 - radial masked sphere remains colored;
 - scrolling `.mask` remains correct;

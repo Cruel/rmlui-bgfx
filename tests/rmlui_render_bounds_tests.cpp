@@ -1,4 +1,5 @@
 #include "rmlui_bgfx_bounds.hpp"
+#include "rmlui_bgfx_types.hpp"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -846,6 +847,64 @@ TEST_CASE("RmlUi negative offscreen source clamps correctly")
         CHECK(uv[2] == 0.5f);
         CHECK(uv[3] == Catch::Approx(0.6666667f));
     }
+}
+
+TEST_CASE("RmlUi materialized layer mapping converts between global and local coordinates")
+{
+    LayerRecord layer;
+    layer.bounds.framebuffer = {120, 80, 300, 200};
+    layer.texture_width = 300;
+    layer.texture_height = 200;
+
+    const LocalFbRect local = local_rect_for_layer(GlobalFbRect{150, 100, 50, 40}, layer);
+    CHECK(local.x == 30);
+    CHECK(local.y == 20);
+    CHECK(local.w == 50);
+    CHECK(local.h == 40);
+
+    const GlobalFbRect global = global_rect_for_layer(local, layer);
+    CHECK(global.x == 150);
+    CHECK(global.y == 100);
+    CHECK(global.w == 50);
+    CHECK(global.h == 40);
+
+    const LocalFbRect clipped = local_rect_for_layer(GlobalFbRect{100, 60, 60, 50}, layer);
+    CHECK(clipped.x == 0);
+    CHECK(clipped.y == 0);
+    CHECK(clipped.w == 40);
+    CHECK(clipped.h == 30);
+
+    CHECK(is_empty(local_rect_for_layer(GlobalFbRect{0, 0, 20, 20}, layer)));
+
+    const LocalFbRect full = full_local_rect(layer);
+    CHECK(full.x == 0);
+    CHECK(full.y == 0);
+    CHECK(full.w == 300);
+    CHECK(full.h == 200);
+}
+
+TEST_CASE("RmlUi materialized layer scissor mapping clamps to target-local bounds")
+{
+    const GlobalFbRect layer_bounds{100, 50, 200, 150};
+
+    const auto partial = clamp_scissor_local(
+        Rml::Rectanglei::FromPositionSize({150, 80}, {200, 100}), layer_bounds);
+    CHECK(partial.Left() == 50);
+    CHECK(partial.Top() == 30);
+    CHECK(partial.Width() == 150);
+    CHECK(partial.Height() == 100);
+
+    const auto full = clamp_scissor_local(
+        Rml::Rectanglei::FromPositionSize({90, 40}, {240, 190}), layer_bounds);
+    CHECK(full.Left() == 0);
+    CHECK(full.Top() == 0);
+    CHECK(full.Width() == 200);
+    CHECK(full.Height() == 150);
+
+    const auto none = clamp_scissor_local(
+        Rml::Rectanglei::FromPositionSize({0, 0}, {20, 20}), layer_bounds);
+    CHECK(none.Width() == 0);
+    CHECK(none.Height() == 0);
 }
 
 TEST_CASE("RmlUi compute_child_layer_bounds selection policy")
