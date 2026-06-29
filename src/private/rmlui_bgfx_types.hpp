@@ -221,6 +221,11 @@ struct RenderTargetRecord {
     uint64_t generation = 0;
     bgfx::TextureFormat::Enum color_format = bgfx::TextureFormat::RGBA8;
     uint8_t msaa_samples = 0;
+    uint64_t first_used_frame = 0;
+    uint64_t last_used_frame = 0;
+    bool full_frame = false;
+    int surface_width = 0;
+    int surface_height = 0;
 };
 
 struct TextureRegion {

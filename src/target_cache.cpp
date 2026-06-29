@@ -67,9 +67,11 @@ TargetDescriptor BgfxTargetCache::make_layer_target_descriptor(
 TargetDescriptor BgfxTargetCache::make_postprocess_target_descriptor(
     PostprocessTargetKind kind, const FbRect& bounds, const SurfaceMetrics& surface) const
 {
+    const bool target_is_full_frame =
+        is_full_frame_rect(bounds, surface.framebuffer_width, surface.framebuffer_height);
     return TargetDescriptor{TargetRole::Postprocess,
                             kind,
-                            TargetLifetime::Frame,
+                            target_is_full_frame ? TargetLifetime::Viewport : TargetLifetime::Frame,
                             bounds,
                             bounds.w,
                             bounds.h,
@@ -82,10 +84,8 @@ TargetDescriptor BgfxTargetCache::make_postprocess_target_descriptor(
                                 (bgfx::getCaps()->supported & BGFX_CAPS_TEXTURE_BLIT) != 0,
                             0,
                             "RmlUi.PostprocessTarget",
-                            is_full_frame_rect(bounds, surface.framebuffer_width,
-                                               surface.framebuffer_height)
-                                ? "full-frame postprocess"
-                                : "bounded postprocess"};
+                            target_is_full_frame ? "full-frame viewport postprocess"
+                                                 : "bounded frame postprocess"};
 }
 
 void BgfxTargetCache::log_target_allocation_failure(const TargetDescriptor& desc,
@@ -115,11 +115,29 @@ void BgfxTargetCache::set_perf_counters(PerfCounters* perf) { m_perf = perf; }
 
 void BgfxTargetCache::begin_frame()
 {
-    // GL3 keeps fixed-role postprocess targets viewport-scoped, but the optimized path currently
-    // resets bounded postprocess scratch targets per frame to avoid unbounded growth from scrolling
-    // bounds. Phase 2/4 should replace this interim policy with explicit frame/viewport lifetimes.
-    // Layer targets remain slot/size cached, matching the GL3 stack-depth reuse model.
-    destroy_postprocess_targets();
+    ++m_frame_generation;
+    if (m_frame_generation == 0) {
+        ++m_frame_generation;
+    }
+
+    // GL3 keeps fixed-role postprocess targets viewport-scoped. The optimized path preserves that
+    // for full-frame role targets while keeping bounded targets frame-scoped so scrolling through
+    // many slightly different filter bounds cannot grow memory across frames.
+    for (auto it = m_postprocess_targets.begin(); it != m_postprocess_targets.end();) {
+        if (it->lifetime == TargetLifetime::Frame || !bgfx::isValid(it->framebuffer) ||
+            !bgfx::isValid(it->color)) {
+            destroy_render_target(*it);
+            it = m_postprocess_targets.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    m_postprocess_pool.reset_resources();
+    for (const RenderTargetRecord& target : m_postprocess_targets) {
+        if (target.lifetime == TargetLifetime::Viewport && bgfx::isValid(target.framebuffer)) {
+            m_postprocess_pool.mark_allocated(target.kind);
+        }
+    }
 }
 
 LayerRecord& BgfxTargetCache::prepare_virtual_layer_slot(uint32_t slot)
@@ -359,8 +377,13 @@ RenderTargetRecord* BgfxTargetCache::acquire_postprocess_target(PostprocessTarge
     for (RenderTargetRecord& target : m_postprocess_targets) {
         if (target.kind == kind && bgfx::isValid(target.framebuffer) &&
             target.texture_width == work_w && target.texture_height == work_h &&
-            target.color_format == descriptor.color_format && target.lifetime == descriptor.lifetime) {
+            target.color_format == descriptor.color_format && target.lifetime == descriptor.lifetime &&
+            target.msaa_samples == descriptor.msaa_samples &&
+            (target.lifetime != TargetLifetime::Viewport ||
+             (target.surface_width == surface.framebuffer_width &&
+              target.surface_height == surface.framebuffer_height))) {
             target.bounds = descriptor.bounds;
+            target.last_used_frame = m_frame_generation;
             return &target;
         }
     }
@@ -390,7 +413,12 @@ RenderTargetRecord* BgfxTargetCache::acquire_postprocess_target(PostprocessTarge
                                      descriptor.lifetime,
                                      next_target_generation(),
                                      descriptor.color_format,
-                                     descriptor.msaa_samples});
+                                     descriptor.msaa_samples,
+                                     m_frame_generation,
+                                     m_frame_generation,
+                                     target_is_full_frame,
+                                     surface.framebuffer_width,
+                                     surface.framebuffer_height});
     RenderTargetRecord& target = m_postprocess_targets.back();
     m_postprocess_pool.mark_allocated(kind);
     if (m_perf) {

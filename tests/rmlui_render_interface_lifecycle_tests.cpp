@@ -146,42 +146,134 @@ TEST_CASE("RmlUi target cache layer metadata generations are stable across compa
     CHECK(recreated->target_generation > first_generation);
 }
 
-TEST_CASE("RmlUi target cache postprocess metadata generations are frame scoped")
+TEST_CASE("RmlUi target cache postprocess lifetimes split viewport and frame targets")
 {
     BgfxNoopScope bgfx;
     REQUIRE(bgfx.initialized());
 
     rmlui_bgfx::BgfxTargetCache target_cache;
     const rmlui_bgfx::SurfaceMetrics surface{64, 64, 64, 64, 1.0f, 1.0f};
-    const rmlui_bgfx::FbRect bounds{4, 8, 20, 12};
+    const rmlui_bgfx::FbRect bounded_bounds{4, 8, 20, 12};
 
-    rmlui_bgfx::RenderTargetRecord* first =
+    rmlui_bgfx::RenderTargetRecord* bounded =
         target_cache.acquire_postprocess_target(rmlui_bgfx::PostprocessTargetKind::Secondary,
-                                                bounds, surface);
-    REQUIRE(first != nullptr);
-    CHECK(first->kind == rmlui_bgfx::PostprocessTargetKind::Secondary);
-    CHECK(first->lifetime == rmlui_bgfx::TargetLifetime::Frame);
-    CHECK(first->generation != 0);
-    CHECK(first->bounds.x == 4);
-    CHECK(first->bounds.y == 8);
-    CHECK(first->texture_width == 20);
-    CHECK(first->texture_height == 12);
-    const uint64_t first_generation = first->generation;
+                                                bounded_bounds, surface);
+    REQUIRE(bounded != nullptr);
+    CHECK(bounded->kind == rmlui_bgfx::PostprocessTargetKind::Secondary);
+    CHECK(bounded->lifetime == rmlui_bgfx::TargetLifetime::Frame);
+    CHECK_FALSE(bounded->full_frame);
+    CHECK(bounded->generation != 0);
+    CHECK(bounded->bounds.x == 4);
+    CHECK(bounded->bounds.y == 8);
+    CHECK(bounded->texture_width == 20);
+    CHECK(bounded->texture_height == 12);
+    const uint64_t bounded_generation = bounded->generation;
 
-    rmlui_bgfx::RenderTargetRecord* reused =
+    rmlui_bgfx::RenderTargetRecord* bounded_reused =
         target_cache.acquire_postprocess_target(rmlui_bgfx::PostprocessTargetKind::Secondary,
                                                 {10, 16, 20, 12}, surface);
-    REQUIRE(reused != nullptr);
-    CHECK(reused->generation == first_generation);
-    CHECK(reused->bounds.x == 10);
-    CHECK(reused->bounds.y == 16);
+    REQUIRE(bounded_reused != nullptr);
+    CHECK(bounded_reused->generation == bounded_generation);
+    CHECK(bounded_reused->bounds.x == 10);
+    CHECK(bounded_reused->bounds.y == 16);
+
+    rmlui_bgfx::RenderTargetRecord* full_frame =
+        target_cache.acquire_postprocess_target(rmlui_bgfx::PostprocessTargetKind::Primary,
+                                                {0, 0, 64, 64}, surface);
+    REQUIRE(full_frame != nullptr);
+    CHECK(full_frame->lifetime == rmlui_bgfx::TargetLifetime::Viewport);
+    CHECK(full_frame->full_frame);
+    CHECK(full_frame->surface_width == 64);
+    CHECK(full_frame->surface_height == 64);
+    CHECK(full_frame->first_used_frame == 0);
+    CHECK(full_frame->last_used_frame == 0);
+    const uint64_t full_frame_generation = full_frame->generation;
+
+    rmlui_bgfx::RenderTargetRecord* full_frame_reused_same_frame =
+        target_cache.acquire_postprocess_target(rmlui_bgfx::PostprocessTargetKind::Primary,
+                                                {0, 0, 64, 64}, surface);
+    REQUIRE(full_frame_reused_same_frame != nullptr);
+    CHECK(full_frame_reused_same_frame->generation == full_frame_generation);
+    CHECK(full_frame_reused_same_frame->last_used_frame == 0);
 
     target_cache.begin_frame();
-    rmlui_bgfx::RenderTargetRecord* next_frame =
+    REQUIRE(target_cache.postprocess_targets().size() == 1);
+    CHECK(target_cache.postprocess_targets().front().generation == full_frame_generation);
+
+    rmlui_bgfx::RenderTargetRecord* full_frame_next =
+        target_cache.acquire_postprocess_target(rmlui_bgfx::PostprocessTargetKind::Primary,
+                                                {0, 0, 64, 64}, surface);
+    REQUIRE(full_frame_next != nullptr);
+    CHECK(full_frame_next->generation == full_frame_generation);
+    CHECK(full_frame_next->lifetime == rmlui_bgfx::TargetLifetime::Viewport);
+    CHECK(full_frame_next->first_used_frame == 0);
+    CHECK(full_frame_next->last_used_frame == 1);
+
+    rmlui_bgfx::RenderTargetRecord* bounded_next =
         target_cache.acquire_postprocess_target(rmlui_bgfx::PostprocessTargetKind::Secondary,
-                                                bounds, surface);
-    REQUIRE(next_frame != nullptr);
-    CHECK(next_frame->generation > first_generation);
+                                                bounded_bounds, surface);
+    REQUIRE(bounded_next != nullptr);
+    CHECK(bounded_next->generation > full_frame_generation);
+    CHECK(bounded_next->generation > bounded_generation);
+    CHECK(bounded_next->lifetime == rmlui_bgfx::TargetLifetime::Frame);
+
+    target_cache.resize(surface);
+    rmlui_bgfx::RenderTargetRecord* recreated_full_frame =
+        target_cache.acquire_postprocess_target(rmlui_bgfx::PostprocessTargetKind::Primary,
+                                                {0, 0, 64, 64}, surface);
+    REQUIRE(recreated_full_frame != nullptr);
+    CHECK(recreated_full_frame->generation > full_frame_generation);
+}
+
+TEST_CASE("RmlUi target cache drops bounded postprocess targets at frame boundary")
+{
+    BgfxNoopScope bgfx;
+    REQUIRE(bgfx.initialized());
+
+    rmlui_bgfx::BgfxTargetCache target_cache;
+    const rmlui_bgfx::SurfaceMetrics surface{128, 128, 128, 128, 1.0f, 1.0f};
+
+    REQUIRE(target_cache.acquire_postprocess_target(rmlui_bgfx::PostprocessTargetKind::Primary,
+                                                    {0, 0, 128, 128}, surface) != nullptr);
+    REQUIRE(target_cache.acquire_postprocess_target(rmlui_bgfx::PostprocessTargetKind::Secondary,
+                                                    {0, 0, 16, 16}, surface) != nullptr);
+    REQUIRE(target_cache.acquire_postprocess_target(rmlui_bgfx::PostprocessTargetKind::Tertiary,
+                                                    {10, 12, 32, 24}, surface) != nullptr);
+    CHECK(target_cache.postprocess_targets().size() == 3);
+
+    target_cache.begin_frame();
+    REQUIRE(target_cache.postprocess_targets().size() == 1);
+    CHECK(target_cache.postprocess_targets().front().lifetime ==
+          rmlui_bgfx::TargetLifetime::Viewport);
+    CHECK(target_cache.postprocess_targets().front().kind ==
+          rmlui_bgfx::PostprocessTargetKind::Primary);
+}
+
+TEST_CASE("RmlUi target cache keeps postprocess roles isolated at matching full-frame size")
+{
+    BgfxNoopScope bgfx;
+    REQUIRE(bgfx.initialized());
+
+    rmlui_bgfx::BgfxTargetCache target_cache;
+    const rmlui_bgfx::SurfaceMetrics surface{64, 64, 64, 64, 1.0f, 1.0f};
+
+    rmlui_bgfx::RenderTargetRecord* primary =
+        target_cache.acquire_postprocess_target(rmlui_bgfx::PostprocessTargetKind::Primary,
+                                                {0, 0, 64, 64}, surface);
+    rmlui_bgfx::RenderTargetRecord* secondary =
+        target_cache.acquire_postprocess_target(rmlui_bgfx::PostprocessTargetKind::Secondary,
+                                                {0, 0, 64, 64}, surface);
+    REQUIRE(primary != nullptr);
+    REQUIRE(secondary != nullptr);
+    CHECK(primary->generation != secondary->generation);
+    CHECK(primary->kind == rmlui_bgfx::PostprocessTargetKind::Primary);
+    CHECK(secondary->kind == rmlui_bgfx::PostprocessTargetKind::Secondary);
+    CHECK(primary->lifetime == rmlui_bgfx::TargetLifetime::Viewport);
+    CHECK(secondary->lifetime == rmlui_bgfx::TargetLifetime::Viewport);
+    CHECK(target_cache.postprocess_targets().size() == 2);
+
+    target_cache.begin_frame();
+    CHECK(target_cache.postprocess_targets().size() == 2);
 }
 
 TEST_CASE("RmlUi bgfx render interface release paths tolerate stale handles")

@@ -100,6 +100,11 @@ TEST_CASE("RmlUi target metadata defaults are safe and explicit")
     CHECK(postprocess.generation == 0);
     CHECK(postprocess.color_format == bgfx::TextureFormat::RGBA8);
     CHECK(postprocess.msaa_samples == 0);
+    CHECK(postprocess.first_used_frame == 0);
+    CHECK(postprocess.last_used_frame == 0);
+    CHECK_FALSE(postprocess.full_frame);
+    CHECK(postprocess.surface_width == 0);
+    CHECK(postprocess.surface_height == 0);
 
     TargetDescriptor descriptor;
     CHECK(descriptor.role == TargetRole::LayerColorDepth);

@@ -66,6 +66,7 @@ private:
 
     PerfCounters* m_perf = nullptr;
     uint64_t m_target_generation_counter = 0;
+    uint64_t m_frame_generation = 0;
     std::vector<LayerRecord> m_layers;
     std::deque<RenderTargetRecord> m_postprocess_targets;
     LayerPoolPlan m_layer_pool;

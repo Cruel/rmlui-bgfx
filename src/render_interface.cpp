@@ -2073,6 +2073,11 @@ void RenderInterface::begin_frame()
         return;
     }
 
+    // Saved masks reference postprocess target generations. Clear them at optimized frame start so
+    // frame-scoped bounded targets destroyed by BgfxTargetCache::begin_frame() cannot be sampled by
+    // stale mask-image filter records.
+    m_impl->saved_masks.clear();
+
     if (!m_impl->begin_base_layer())
         return;
     LayerRecord* base = m_impl->current_layer();
