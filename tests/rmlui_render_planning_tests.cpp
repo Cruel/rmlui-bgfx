@@ -107,6 +107,16 @@ TEST_CASE("RmlUi target metadata defaults are safe and explicit")
     CHECK(descriptor.color_format == bgfx::TextureFormat::RGBA8);
     CHECK(descriptor.depth_stencil_format == bgfx::TextureFormat::Unknown);
     CHECK(descriptor.generation == 0);
+
+    SavedMaskRecord saved_mask;
+    CHECK(saved_mask.filter == 0);
+    CHECK(saved_mask.target_kind == PostprocessTargetKind::BlendMask);
+    CHECK(saved_mask.target_generation == 0);
+    CHECK(saved_mask.texture_width == 0);
+    CHECK(saved_mask.texture_height == 0);
+    CHECK(saved_mask.source_layer_generation == 0);
+    CHECK_FALSE(saved_mask.full_frame);
+    CHECK_FALSE(saved_mask.bounded);
 }
 
 TEST_CASE("RmlUi postprocess pool does not consume layer handles")

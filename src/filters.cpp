@@ -50,14 +50,29 @@ void trace_texture(const char* label, const TextureRegion& region)
     trace_rect("local", region.local_rect);
 }
 
+struct ResolvedFilterEntry {
+    Rml::CompiledFilterHandle handle = 0;
+    FilterRecord filter;
+};
+
+struct ResolvedMaskImage {
+    bgfx::TextureHandle texture = BGFX_INVALID_HANDLE;
+    GlobalFbRect global_bounds;
+    LocalFbRect local_rect;
+    int texture_width = 0;
+    int texture_height = 0;
+    uint64_t target_generation = 0;
+};
+
 void trace_filter_chain(const BgfxFilterPipelineContext& ctx,
-                        const std::vector<FilterRecord>& filter_chain)
+                        const std::vector<ResolvedFilterEntry>& filter_chain)
 {
     if (!ctx.trace_filter_pipeline) {
         return;
     }
     std::fprintf(stderr, "[rmlui-bgfx][filter] chain count=%zu", filter_chain.size());
-    for (const FilterRecord& filter : filter_chain) {
+    for (const ResolvedFilterEntry& entry : filter_chain) {
+        const FilterRecord& filter = entry.filter;
         std::fprintf(stderr, " %s", filter_kind_name(filter.kind));
         if (filter.kind == FilterKind::Blur || filter.kind == FilterKind::DropShadow) {
             std::fprintf(stderr, " sigma=%.3f", filter.sigma);
@@ -135,11 +150,22 @@ void trace_filter_chain(const BgfxFilterPipelineContext& ctx,
            BGFX_STENCIL_OP_FAIL_Z_KEEP | BGFX_STENCIL_OP_PASS_Z_KEEP;
 }
 
-[[nodiscard]] bool filter_chain_has_drop_shadow(const std::vector<FilterRecord>& filters)
+[[nodiscard]] bool filter_chain_has_drop_shadow(const std::vector<ResolvedFilterEntry>& filters)
 {
-    return std::any_of(filters.begin(), filters.end(), [](const FilterRecord& filter) {
-        return filter.kind == FilterKind::DropShadow;
+    return std::any_of(filters.begin(), filters.end(), [](const ResolvedFilterEntry& entry) {
+        return entry.filter.kind == FilterKind::DropShadow;
     });
+}
+
+[[nodiscard]] std::vector<FilterRecord> filter_records_only(
+    const std::vector<ResolvedFilterEntry>& entries)
+{
+    std::vector<FilterRecord> records;
+    records.reserve(entries.size());
+    for (const ResolvedFilterEntry& entry : entries) {
+        records.push_back(entry.filter);
+    }
+    return records;
 }
 
 [[nodiscard]] RenderTargetRecord* target_for_texture(bgfx::TextureHandle texture,
@@ -156,30 +182,89 @@ void trace_filter_chain(const BgfxFilterPipelineContext& ctx,
     return nullptr;
 }
 
-[[nodiscard]] bgfx::TextureHandle resolve_mask_texture(const BgfxFilterPipelineContext& ctx,
-                                                       const FilterRecord& filter)
+[[nodiscard]] std::vector<ResolvedFilterEntry>
+resolve_filter_entries(const BgfxFilterPipelineContext& ctx,
+                       Rml::Span<const Rml::CompiledFilterHandle> filter_handles)
+{
+    std::vector<ResolvedFilterEntry> filter_chain;
+    filter_chain.reserve(filter_handles.size());
+    for (Rml::CompiledFilterHandle handle : filter_handles) {
+        auto it = ctx.filters.find(handle);
+        if (it == ctx.filters.end()) {
+            return {};
+        }
+        filter_chain.push_back({handle, it->second});
+    }
+
+    std::vector<FilterRecord> simplified;
+    simplified.reserve(filter_chain.size());
+    for (const ResolvedFilterEntry& entry : filter_chain) {
+        simplified.push_back(entry.filter);
+    }
+    simplified = simplify_filter_chain(simplified);
+
+    std::vector<ResolvedFilterEntry> resolved;
+    resolved.reserve(simplified.size());
+    size_t search_start = 0;
+    for (const FilterRecord& filter : simplified) {
+        Rml::CompiledFilterHandle handle = 0;
+        for (size_t index = search_start; index < filter_chain.size(); ++index) {
+            const ResolvedFilterEntry& candidate = filter_chain[index];
+            if (candidate.filter.kind == filter.kind) {
+                handle = candidate.handle;
+                search_start = index + 1;
+                break;
+            }
+        }
+        resolved.push_back({handle, filter});
+    }
+    return resolved;
+}
+
+[[nodiscard]] ResolvedMaskImage resolve_mask_image(const BgfxFilterPipelineContext& ctx,
+                                                  Rml::CompiledFilterHandle handle,
+                                                  const FilterRecord& filter)
 {
     if (filter.resource != 0) {
         auto tex_it = ctx.textures.find(Rml::TextureHandle(filter.resource));
-        if (tex_it != ctx.textures.end()) {
-            return tex_it->second.handle;
+        if (tex_it == ctx.textures.end()) {
+            return {};
         }
-        return BGFX_INVALID_HANDLE;
+        const FbRect mask_bounds = clamp_to_surface(
+            align_outward_for_render_target(FbRect{filter.mask_bounds[0], filter.mask_bounds[1],
+                                                   filter.mask_bounds[2], filter.mask_bounds[3]}),
+            ctx.surface);
+        return {tex_it->second.handle,
+                mask_bounds,
+                LocalFbRect{0, 0, tex_it->second.dimensions.x, tex_it->second.dimensions.y},
+                tex_it->second.dimensions.x,
+                tex_it->second.dimensions.y,
+                0};
     }
 
-    const FbRect mask_bounds = clamp_to_surface(
-        align_outward_for_render_target(FbRect{filter.mask_bounds[0], filter.mask_bounds[1],
-                                               filter.mask_bounds[2], filter.mask_bounds[3]}),
-        ctx.surface);
-    if (is_empty(mask_bounds)) {
-        return BGFX_INVALID_HANDLE;
+    if (!ctx.saved_masks) {
+        if (ctx.fail_frame) {
+            ctx.fail_frame("mask-image saved mask registry missing");
+        }
+        return {};
     }
-    RenderTargetRecord* blend_mask = ctx.target_cache.acquire_postprocess_target(
-        PostprocessTargetKind::BlendMask, mask_bounds, ctx.surface);
-    if (blend_mask) {
-        return blend_mask->color;
+    auto mask_it = ctx.saved_masks->find(handle);
+    if (mask_it == ctx.saved_masks->end()) {
+        if (ctx.fail_frame) {
+            ctx.fail_frame("mask-image saved mask missing");
+        }
+        return {};
     }
-    return BGFX_INVALID_HANDLE;
+    const SavedMaskRecord& record = mask_it->second;
+    if (record.filter != handle || record.target_kind != PostprocessTargetKind::BlendMask ||
+        !bgfx::isValid(record.color) || is_empty(record.global_bounds)) {
+        if (ctx.fail_frame) {
+            ctx.fail_frame("mask-image saved mask invalid");
+        }
+        return {};
+    }
+    return {record.color, record.global_bounds, record.local_rect, record.texture_width,
+            record.texture_height, record.target_generation};
 }
 
 [[nodiscard]] std::array<float, 4> mask_uv_transform(FbRect destination_bounds, FbRect mask_bounds)
@@ -405,16 +490,17 @@ BgfxFilterPipeline::apply_common(const BgfxFilterPipelineContext& ctx, TextureRe
         return result;
     }
 
-    std::vector<FilterRecord> filter_chain = resolve(ctx, filter_handles);
+    std::vector<ResolvedFilterEntry> filter_chain = resolve_filter_entries(ctx, filter_handles);
     if (filter_chain.empty()) {
         return result;
     }
     trace_filter_chain(ctx, filter_chain);
+    const std::vector<FilterRecord> filter_records = filter_records_only(filter_chain);
 
     // GL3 physically ping-pongs even simple color filters. The optimized path may fold only
     // color/opacity chains into the later composite because those filters do not sample neighboring
     // pixels or renderer-owned mask resources.
-    const ColorOnlyFilterPlan color_only_plan = plan_color_only_filter_chain(filter_chain);
+    const ColorOnlyFilterPlan color_only_plan = plan_color_only_filter_chain(filter_records);
     if (color_only_plan.eligible) {
         result.composite_filter.enabled = true;
         result.composite_filter.opacity = color_only_plan.opacity;
@@ -427,7 +513,7 @@ BgfxFilterPipeline::apply_common(const BgfxFilterPipelineContext& ctx, TextureRe
     const FbRect expanded = expand_bounds(source_valid_global_bounds, total_expansion);
     FbRect clamped_work_bounds =
         clamp_to_surface(align_outward_for_render_target(expanded), ctx.surface);
-    if (filter_chain.size() == 1 && filter_chain[0].kind == FilterKind::MaskImage) {
+    if (filter_chain.size() == 1 && filter_chain[0].filter.kind == FilterKind::MaskImage) {
         clamped_work_bounds = source_valid_global_bounds;
     } else if (ctx.clamp_work_bounds_to_source) {
         clamped_work_bounds = intersect(clamped_work_bounds, source_bounds.framebuffer);
@@ -468,11 +554,10 @@ BgfxFilterPipeline::apply_common(const BgfxFilterPipelineContext& ctx, TextureRe
         std::fprintf(stderr, "\n");
     }
 
-    if (filter_chain.size() == 1 && filter_chain[0].kind == FilterKind::MaskImage) {
-        // Phase 3 should resolve this through an explicit SavedMaskRecord instead of rediscovering
-        // a BlendMask target by kind/bounds.
-        const bgfx::TextureHandle mask_texture = resolve_mask_texture(ctx, filter_chain[0]);
-        if (!bgfx::isValid(mask_texture)) {
+    if (filter_chain.size() == 1 && filter_chain[0].filter.kind == FilterKind::MaskImage) {
+        const ResolvedMaskImage mask =
+            resolve_mask_image(ctx, filter_chain[0].handle, filter_chain[0].filter);
+        if (!bgfx::isValid(mask.texture)) {
             return {};
         }
         RenderTargetRecord* destination = safe_destination(ctx, source.texture, primary, secondary);
@@ -489,12 +574,10 @@ BgfxFilterPipeline::apply_common(const BgfxFilterPipelineContext& ctx, TextureRe
         ctx.perf.add_mask(uint64_t(destination->texture_width) *
                               uint64_t(destination->texture_height),
                           is_full_mask);
-        if (texture_attached_to_framebuffer(ctx, mask_texture, destination->framebuffer)) {
+        if (texture_attached_to_framebuffer(ctx, mask.texture, destination->framebuffer)) {
             return {};
         }
-        const FbRect mask_bounds{filter_chain[0].mask_bounds[0], filter_chain[0].mask_bounds[1],
-                                 filter_chain[0].mask_bounds[2], filter_chain[0].mask_bounds[3]};
-        const auto mask_transform = mask_uv_transform(destination->bounds, mask_bounds);
+        const auto mask_transform = mask_uv_transform(destination->bounds, mask.global_bounds);
         const FbRect source_sample_local{
             source.local_rect.x + destination->bounds.x - source.global_bounds.x,
             source.local_rect.y + destination->bounds.y - source.global_bounds.y,
@@ -503,7 +586,7 @@ BgfxFilterPipeline::apply_common(const BgfxFilterPipelineContext& ctx, TextureRe
         };
         const auto source_uv = uv_rect_for_source_region(source_sample_local, source.texture_width,
                                                          source.texture_height);
-        if (!ctx.draw_context.submit_mask_image(*pass, ctx.resources, source.texture, mask_texture,
+        if (!ctx.draw_context.submit_mask_image(*pass, ctx.resources, source.texture, mask.texture,
                                                 mask_transform, source_uv)) {
             return {};
         }
@@ -513,7 +596,7 @@ BgfxFilterPipeline::apply_common(const BgfxFilterPipelineContext& ctx, TextureRe
             destination->texture_width, destination->texture_height);
         result.output_bounds = render_bounds_from_framebuffer(destination->bounds, ctx.surface);
         result.valid_output_bounds = render_bounds_from_framebuffer(
-            advance_valid_filter_bounds(source_valid_global_bounds, filter_chain[0],
+            advance_valid_filter_bounds(source_valid_global_bounds, filter_chain[0].filter,
                                         destination->bounds),
             ctx.surface);
         return result;
@@ -556,7 +639,8 @@ BgfxFilterPipeline::apply_common(const BgfxFilterPipelineContext& ctx, TextureRe
     RenderTargetRecord* destination = secondary;
     FbRect current_valid_rect = copy_destination;
     FbRect current_valid_global = source_valid_global_bounds;
-    for (const FilterRecord& filter : filter_chain) {
+    for (const ResolvedFilterEntry& entry : filter_chain) {
+        const FilterRecord& filter = entry.filter;
         bool ok = false;
         switch (filter.kind) {
         case FilterKind::Opacity: {
@@ -581,8 +665,8 @@ BgfxFilterPipeline::apply_common(const BgfxFilterPipelineContext& ctx, TextureRe
             current_valid_rect = {0, 0, destination->texture_width, destination->texture_height};
             break;
         case FilterKind::MaskImage: {
-            const bgfx::TextureHandle mask_texture = resolve_mask_texture(ctx, filter);
-            if (!bgfx::isValid(mask_texture) || !ctx.ensure_fullscreen_geometry ||
+            const ResolvedMaskImage mask = resolve_mask_image(ctx, entry.handle, filter);
+            if (!bgfx::isValid(mask.texture) || !ctx.ensure_fullscreen_geometry ||
                 !ctx.ensure_fullscreen_geometry() ||
                 !bgfx::isValid(ctx.resources.mask_multiply_program)) {
                 return {};
@@ -597,16 +681,14 @@ BgfxFilterPipeline::apply_common(const BgfxFilterPipelineContext& ctx, TextureRe
             ctx.perf.add_mask(uint64_t(destination->texture_width) *
                                   uint64_t(destination->texture_height),
                               is_full_mask);
-            if (texture_attached_to_framebuffer(ctx, mask_texture, destination->framebuffer)) {
+            if (texture_attached_to_framebuffer(ctx, mask.texture, destination->framebuffer)) {
                 if (ctx.fail_frame) {
                     ctx.fail_frame("mask-image filter feedback loop");
                 }
                 return {};
             }
-            const FbRect mask_bounds{filter.mask_bounds[0], filter.mask_bounds[1],
-                                     filter.mask_bounds[2], filter.mask_bounds[3]};
-            const auto mask_transform = mask_uv_transform(destination->bounds, mask_bounds);
-            ok = ctx.draw_context.submit_mask_image(*pass, ctx.resources, current, mask_texture,
+            const auto mask_transform = mask_uv_transform(destination->bounds, mask.global_bounds);
+            ok = ctx.draw_context.submit_mask_image(*pass, ctx.resources, current, mask.texture,
                                                     mask_transform);
             current_valid_rect = {0, 0, destination->texture_width, destination->texture_height};
             break;

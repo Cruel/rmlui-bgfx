@@ -60,6 +60,7 @@ struct BgfxLayerSaveMaskContext {
     bool* root_requires_preservation = nullptr;
     std::unordered_map<Rml::TextureHandle, TextureRecord>* textures = nullptr;
     std::unordered_map<Rml::CompiledFilterHandle, FilterRecord>* filters = nullptr;
+    std::unordered_map<Rml::CompiledFilterHandle, SavedMaskRecord>* saved_masks = nullptr;
     Rml::TextureHandle* texture_counter = nullptr;
     Rml::CompiledFilterHandle* filter_counter = nullptr;
     std::function<void(const char*)> fail_frame;

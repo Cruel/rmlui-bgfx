@@ -16,6 +16,7 @@ namespace rmlui_bgfx {
 struct BgfxFilterPipelineContext {
     const std::unordered_map<Rml::CompiledFilterHandle, FilterRecord>& filters;
     const std::unordered_map<Rml::TextureHandle, TextureRecord>& textures;
+    const std::unordered_map<Rml::CompiledFilterHandle, SavedMaskRecord>* saved_masks = nullptr;
     const SurfaceMetrics& surface;
     BgfxTargetCache& target_cache;
     BgfxPassBuilder& pass_builder;

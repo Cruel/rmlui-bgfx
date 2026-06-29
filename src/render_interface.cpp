@@ -1130,6 +1130,7 @@ struct RenderInterface::Impl {
             &root_requires_preservation,
             &textures,
             &filters,
+            &saved_masks,
             &texture_counter,
             &filter_counter,
             [this](const char* message) { fail_frame(message); },
@@ -1375,6 +1376,7 @@ struct RenderInterface::Impl {
         (void)ensure_fullscreen_geometry();
         return BgfxFilterPipelineContext{filters,
                                          textures,
+                                         &saved_masks,
                                          surface,
                                          target_cache,
                                          pass_builder,
@@ -1951,6 +1953,7 @@ struct RenderInterface::Impl {
     std::unordered_set<Rml::CompiledGeometryHandle> deferred_geometry_release;
     std::unordered_map<Rml::TextureHandle, TextureRecord> textures;
     std::unordered_map<Rml::CompiledFilterHandle, FilterRecord> filters;
+    std::unordered_map<Rml::CompiledFilterHandle, SavedMaskRecord> saved_masks;
     std::unordered_map<Rml::CompiledShaderHandle, ShaderRecord> shaders;
     std::vector<ClipCommand> clip_commands;
     Rml::CompiledGeometryHandle geometry_counter = 0;
@@ -2521,6 +2524,7 @@ void RenderInterface::ReleaseFilter(Rml::CompiledFilterHandle filter)
     auto filter_it = m_impl->filters.find(filter);
     if (filter_it == m_impl->filters.end())
         return;
+    m_impl->saved_masks.erase(filter);
     if (filter_it->second.kind == FilterKind::MaskImage && filter_it->second.resource != 0) {
         const Rml::TextureHandle texture = Rml::TextureHandle(filter_it->second.resource);
         auto texture_it = m_impl->textures.find(texture);

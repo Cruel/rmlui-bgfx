@@ -194,6 +194,21 @@ struct LayerRecord {
     return Rml::Rectanglei::FromPositionSize({rect.x, rect.y}, {rect.w, rect.h});
 }
 
+struct SavedMaskRecord {
+    Rml::CompiledFilterHandle filter = 0;
+    PostprocessTargetKind target_kind = PostprocessTargetKind::BlendMask;
+    bgfx::FrameBufferHandle framebuffer = BGFX_INVALID_HANDLE;
+    bgfx::TextureHandle color = BGFX_INVALID_HANDLE;
+    uint64_t target_generation = 0;
+    GlobalFbRect global_bounds;
+    LocalFbRect local_rect;
+    int texture_width = 0;
+    int texture_height = 0;
+    uint64_t source_layer_generation = 0;
+    bool full_frame = false;
+    bool bounded = false;
+};
+
 struct RenderTargetRecord {
     // Semantic postprocess role. Reusing a physical target must preserve this role identity.
     bgfx::FrameBufferHandle framebuffer = BGFX_INVALID_HANDLE;

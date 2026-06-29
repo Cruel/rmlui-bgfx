@@ -22,6 +22,7 @@ TEST_CASE("RmlUi saved mask image uses materialized mask bounds")
     layer.has_valid_content_bounds = true;
     layer.texture_width = 20;
     layer.texture_height = 15;
+    layer.target_generation = 44;
     layer.kind = LayerKind::VirtualChild;
     layer.materialized = true;
 
@@ -29,6 +30,7 @@ TEST_CASE("RmlUi saved mask image uses materialized mask bounds")
 
     std::unordered_map<Rml::TextureHandle, TextureRecord> textures;
     std::unordered_map<Rml::CompiledFilterHandle, FilterRecord> filters;
+    std::unordered_map<Rml::CompiledFilterHandle, SavedMaskRecord> saved_masks;
     Rml::TextureHandle texture_counter = 7;
     Rml::CompiledFilterHandle filter_counter = 11;
     std::optional<FbRect> materialize_required_bounds;
@@ -41,6 +43,7 @@ TEST_CASE("RmlUi saved mask image uses materialized mask bounds")
     blend_mask.texture_width = 20;
     blend_mask.texture_height = 15;
     blend_mask.kind = PostprocessTargetKind::BlendMask;
+    blend_mask.generation = 99;
     bool composite_called = false;
     CompositeOp composite_op;
 
@@ -48,6 +51,7 @@ TEST_CASE("RmlUi saved mask image uses materialized mask bounds")
     ctx.surface = SurfaceMetrics{200, 200, 200, 200, 1.0f, 1.0f};
     ctx.textures = &textures;
     ctx.filters = &filters;
+    ctx.saved_masks = &saved_masks;
     ctx.texture_counter = &texture_counter;
     ctx.filter_counter = &filter_counter;
     ctx.materialize_layer = [&](Rml::LayerHandle, std::optional<FbRect> required_bounds) {
@@ -75,6 +79,7 @@ TEST_CASE("RmlUi saved mask image uses materialized mask bounds")
 
     CHECK(filter == 12);
     REQUIRE(filters.contains(filter));
+    REQUIRE(saved_masks.contains(filter));
     CHECK(textures.empty());
     CHECK_FALSE(materialize_required_bounds.has_value());
     CHECK(requested_target_kind == PostprocessTargetKind::BlendMask);
@@ -98,6 +103,26 @@ TEST_CASE("RmlUi saved mask image uses materialized mask bounds")
     CHECK(record.mask_bounds[1] == 40);
     CHECK(record.mask_bounds[2] == 20);
     CHECK(record.mask_bounds[3] == 15);
+
+    const SavedMaskRecord& saved_mask = saved_masks.at(filter);
+    CHECK(saved_mask.filter == filter);
+    CHECK(saved_mask.target_kind == PostprocessTargetKind::BlendMask);
+    CHECK(saved_mask.framebuffer.idx == 5);
+    CHECK(saved_mask.color.idx == 6);
+    CHECK(saved_mask.target_generation == 99);
+    CHECK(saved_mask.global_bounds.x == 30);
+    CHECK(saved_mask.global_bounds.y == 40);
+    CHECK(saved_mask.global_bounds.w == 20);
+    CHECK(saved_mask.global_bounds.h == 15);
+    CHECK(saved_mask.local_rect.x == 0);
+    CHECK(saved_mask.local_rect.y == 0);
+    CHECK(saved_mask.local_rect.w == 20);
+    CHECK(saved_mask.local_rect.h == 15);
+    CHECK(saved_mask.texture_width == 20);
+    CHECK(saved_mask.texture_height == 15);
+    CHECK(saved_mask.source_layer_generation == 44);
+    CHECK_FALSE(saved_mask.full_frame);
+    CHECK(saved_mask.bounded);
 
     layer.framebuffer = BGFX_INVALID_HANDLE;
 }

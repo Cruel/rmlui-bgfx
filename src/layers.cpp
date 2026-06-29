@@ -323,8 +323,8 @@ Rml::CompiledFilterHandle
 BgfxLayerSystem::save_layer_as_mask_image(const BgfxLayerSaveMaskContext& ctx)
 {
     // GL3 saves into a renderer-owned blend-mask target and returns a MaskImage filter, not an
-    // ordinary saved texture. Phase 3 should replace the current resource=0+bounds convention with
-    // an explicit SavedMaskRecord keyed by the returned filter handle and target generation.
+    // ordinary saved texture. Store explicit SavedMaskRecord ownership so later MaskImage
+    // resolution uses this exact target/generation rather than anonymous BlendMask lookup.
     if (ctx.direct_base_requested && size_t(m_active_layer) == 0) {
         if (ctx.root_requires_preservation) {
             *ctx.root_requires_preservation = true;
@@ -334,15 +334,16 @@ BgfxLayerSystem::save_layer_as_mask_image(const BgfxLayerSaveMaskContext& ctx)
         }
         return 0;
     }
-    if (!ctx.materialize_layer || !ctx.materialize_layer(m_active_layer, std::nullopt)) {
+    if (!ctx.saved_masks || !ctx.materialize_layer ||
+        !ctx.materialize_layer(m_active_layer, std::nullopt)) {
         if (ctx.fail_frame) {
             ctx.fail_frame("SaveLayerAsMaskImage failed to materialize layer");
         }
         return 0;
     }
     LayerRecord* layer = materialized_layer_for_handle(m_active_layer, ctx.direct_base_requested);
-    if (!layer || !bgfx::isValid(layer->color) || !ctx.filters || !ctx.filter_counter ||
-        !ctx.ensure_target || !ctx.composite) {
+    if (!layer || !bgfx::isValid(layer->color) || !ctx.filters || !ctx.saved_masks ||
+        !ctx.filter_counter || !ctx.ensure_target || !ctx.composite) {
         return 0;
     }
     const FbRect mask_global_bounds =
@@ -386,7 +387,30 @@ BgfxLayerSystem::save_layer_as_mask_image(const BgfxLayerSaveMaskContext& ctx)
     filter.mask_bounds = {mask_global_bounds.x, mask_global_bounds.y, mask_global_bounds.w,
                           mask_global_bounds.h};
     const Rml::CompiledFilterHandle handle = ++(*ctx.filter_counter);
-    ctx.filters->emplace(handle, filter);
+    SavedMaskRecord saved_mask;
+    saved_mask.filter = handle;
+    saved_mask.target_kind = PostprocessTargetKind::BlendMask;
+    saved_mask.framebuffer = blend_mask->framebuffer;
+    saved_mask.color = blend_mask->color;
+    saved_mask.target_generation = blend_mask->generation;
+    saved_mask.global_bounds = mask_global_bounds;
+    saved_mask.local_rect = {0, 0, blend_mask->texture_width, blend_mask->texture_height};
+    saved_mask.texture_width = blend_mask->texture_width;
+    saved_mask.texture_height = blend_mask->texture_height;
+    saved_mask.source_layer_generation = layer->target_generation;
+    saved_mask.full_frame = !is_empty(mask_global_bounds) && mask_global_bounds.x == 0 &&
+                            mask_global_bounds.y == 0 &&
+                            mask_global_bounds.w >= ctx.surface.framebuffer_width &&
+                            mask_global_bounds.h >= ctx.surface.framebuffer_height;
+    saved_mask.bounded = !saved_mask.full_frame;
+
+    const auto filter_inserted = ctx.filters->emplace(handle, filter);
+    const auto mask_inserted = ctx.saved_masks->emplace(handle, saved_mask);
+    if (!filter_inserted.second || !mask_inserted.second) {
+        ctx.filters->erase(handle);
+        ctx.saved_masks->erase(handle);
+        return 0;
+    }
     return handle;
 }
 
