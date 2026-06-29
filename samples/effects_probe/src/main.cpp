@@ -117,6 +117,10 @@ constexpr ProbeCase kCases[] = {
      "full-sample blur box-shadow without transform inside filtered wrapper"},
     {"29", "29_effects_inset_only.rml", "single inset box-shadow without outer shadows"},
     {"30", "30_effects_inset_no_blur.rml", "single inset box-shadow without blur"},
+    {"31", "31_readback_effects_stress.rml",
+     "readback-gallery effects stress scene for GL3/reference/optimized comparison"},
+    {"32", "32_readback_gallery_duplicate.rml",
+     "full NovelTea readback gallery duplicate to reproduce compounded scene interactions"},
 };
 
 void print_cases(const char* executable)

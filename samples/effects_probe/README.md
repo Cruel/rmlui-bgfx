@@ -50,6 +50,12 @@ Cases:
 - `26` isolates the full-sample trail box-shadow inside the no-op filtered wrapper.
 - `27` is the matching trail box-shadow control without the outer wrapper filter.
 - `28` isolates the full-sample blur box-shadow without transform inside the no-op filtered wrapper.
+- `29` isolates a single inset box-shadow without outer shadows.
+- `30` isolates a single inset box-shadow without blur.
+- `31` mirrors the NovelTea readback-gallery effects stress scene for GL3, bgfx reference, and
+  bgfx optimized comparison before readback expectations are captured.
+- `32` duplicates the full NovelTea readback gallery document so compounded scene interactions can
+  be compared in GL3, bgfx reference, and bgfx optimized without changing the readback harness.
 
 Suggested workflow:
 

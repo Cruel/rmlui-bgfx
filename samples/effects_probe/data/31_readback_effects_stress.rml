@@ -1,0 +1,60 @@
+<rml>
+<head>
+<link type="text/rcss" href="common.rcss"/>
+<title>Effects Probe 31</title>
+<style>
+body { padding: 18dp; }
+.stage { position: relative; display: block; width: 828dp; height: 224dp; overflow: hidden; background: #a4b6b7; border: 2dp #d9eeee; }
+.stress-label { position: absolute; left: 12dp; top: 8dp; color: #111111aa; font-size: 13dp; }
+.stress-wrapper { position: absolute; display: block; width: 176dp; height: 68dp; }
+.noop-filter { filter: opacity(1) sepia(0) grayscale(0) saturate(1) brightness(1) contrast(1) hue-rotate(0deg) invert(0) blur(0px); }
+.stress-box { position: absolute; display: block; box-sizing: border-box; width: 156dp; height: 48dp; padding: 10dp; border: 2dp #def6f7; border-radius: 24dp 8dp; background: #f5f7f8ee; color: #111; font-size: 13dp; }
+.transformed-shadow { left: 62dp; top: 42dp; transform: rotate3d(0.2, 0.4, 0.1, 15deg); }
+.soft-shadow { box-shadow: #f00f 28px 22px 16px 0px, #00ff -26px -20px 28px 0px, #0f08 -32px 42px 34px 0px, #333a 0px 0px 18px 10px inset; }
+.trail-contract { left: 300dp; top: 42dp; }
+.trail-shadow { filter: opacity(1); box-shadow: #f66 22dp 22dp 0 0, #c88 44dp 44dp 0 0, #baa 66dp 66dp 0 0, #ffac 0 0 8px 8dp inset; }
+.inset-clip { left: 560dp; top: 42dp; overflow: hidden; border-radius: 24dp 8dp; }
+.inset-shadow { box-shadow: #f4fd 10px 5px 5px 3px inset; }
+.stress-backdrop-bg { position: absolute; display: block; border-radius: 22dp; }
+.stress-backdrop-bg.red { left: 78dp; top: 142dp; width: 160dp; height: 24dp; background: #ff2d55; }
+.stress-backdrop-bg.green { left: 126dp; top: 122dp; width: 150dp; height: 46dp; background: #32d74b; }
+.stress-backdrop-bg.blue { left: 170dp; top: 106dp; width: 150dp; height: 24dp; background: #0a84ff; }
+.backdrop-window { left: 96dp; top: 116dp; width: 188dp; height: 54dp; background: #ffffff88; backdrop-filter: blur(5px); }
+.multi-source-a { left: 402dp; top: 124dp; }
+.multi-source-b { left: 562dp; top: 136dp; }
+.small-shadow { box-shadow: #ffd60acc 12px 10px 4px 0px; filter: drop-shadow(#ff453acc 8px 8px 3px); }
+.small-inset { box-shadow: #bf5af2dd 0 0 6px 5px inset; }
+</style>
+</head>
+<body>
+<h1>Effects Probe 31 - readback effects stress</h1>
+<p class="note">Same complex layer/filter stress scene added to the NovelTea readback gallery. Use this for GL3, bgfx reference, and bgfx optimized visual comparison before capturing readback expectations.</p>
+<div class="stage">
+    <div class="stress-label">effects stress</div>
+    <!-- Regression: transformed layer plus blurred/inset box-shadow in a no-op filter contract. -->
+    <div class="stress-wrapper noop-filter transformed-shadow">
+        <div class="stress-box soft-shadow">transform + blur shadow</div>
+    </div>
+    <!-- Regression: opacity(1) layer contract preserving box-shadow ink overflow. -->
+    <div class="stress-wrapper noop-filter trail-contract">
+        <div class="stress-box trail-shadow">trail opacity(1)</div>
+    </div>
+    <!-- Regression: rounded clip plus inset shadow. -->
+    <div class="stress-wrapper inset-clip">
+        <div class="stress-box inset-shadow">rounded inset</div>
+    </div>
+    <!-- Regression: backdrop-filter sampling generated background content. -->
+    <div class="stress-backdrop-bg red"></div>
+    <div class="stress-backdrop-bg green"></div>
+    <div class="stress-backdrop-bg blue"></div>
+    <div class="stress-box backdrop-window">backdrop blur</div>
+    <!-- Regression: multiple filtered/materialized child composites into the same destination. -->
+    <div class="stress-wrapper noop-filter multi-source-a">
+        <div class="stress-box small-shadow">multi comp A</div>
+    </div>
+    <div class="stress-wrapper noop-filter multi-source-b">
+        <div class="stress-box small-inset">multi comp B</div>
+    </div>
+</div>
+</body>
+</rml>

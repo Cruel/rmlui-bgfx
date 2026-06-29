@@ -1,0 +1,337 @@
+<rml>
+<head>
+<title>Effects Probe 32</title>
+<style>
+body
+{
+    display: block;
+    width: 860px;
+    height: 520px;
+    margin: 0px;
+    background: #101820;
+}
+
+#orientation,
+#clip_mask,
+#saved_mask,
+#filters,
+#gradients,
+#transform_clip,
+#individual_filters,
+#repeating_gradients,
+#effects_stress
+{
+    position: absolute;
+    display: block;
+    height: 96px;
+    box-sizing: border-box;
+    border-width: 1px;
+    border-color: #ffffff33;
+    background: #202a35;
+}
+
+#orientation { left: 16px; width: 96px; }
+#clip_mask { left: 124px; width: 96px; overflow: hidden; border-radius: 32px 8px; background: #ffd34f; }
+#filters { left: 232px; width: 116px; }
+#gradients { left: 360px; width: 104px; }
+#saved_mask { left: 476px; width: 96px; mask-image: radial-gradient(circle closest-side at center, black 55%, transparent 75%); }
+#orientation,
+#clip_mask,
+#saved_mask,
+#filters,
+#gradients { top: 16px; }
+
+#transform_clip { left: 596px; top: 16px; width: 96px; overflow: hidden; border-radius: 34px 10px; transform: rotate(14deg); background: #ffd34f; }
+#individual_filters { left: 16px; top: 140px; width: 228px; }
+#repeating_gradients { left: 264px; top: 140px; width: 180px; }
+#effects_stress { left: 16px; top: 260px; width: 828px; height: 224px; overflow: hidden; background: #a4b6b7; }
+
+.corner
+{
+    position: absolute;
+    display: block;
+    width: 28px;
+    height: 24px;
+}
+
+.tl { left: 0px; top: 0px; background: #ff3b30; }
+.tr { right: 0px; top: 0px; background: #34c759; }
+.bl { left: 0px; bottom: 0px; background: #007aff; }
+.br { right: 0px; bottom: 0px; background: #ffcc00; }
+
+.clip-a,
+.clip-b
+{
+    position: absolute;
+    display: block;
+    border-radius: 24px;
+}
+
+.clip-a { left: -10px; top: 20px; width: 62px; height: 46px; background: #ff2d55; }
+.clip-b { left: 44px; top: 32px; width: 68px; height: 52px; background: #32d74b; }
+
+#saved_mask > div
+{
+    display: block;
+    width: 100%;
+    height: 100%;
+    decorator: linear-gradient(90deg, #ff375f, #ffd60a, #64d2ff);
+}
+
+.transform-content
+{
+    position: absolute;
+    display: block;
+    left: -24px;
+    top: 22px;
+    width: 150px;
+    height: 48px;
+    border-radius: 24px;
+    background: #ff2d55;
+    filter: opacity(0.82);
+}
+
+.filter
+{
+    position: absolute;
+    display: block;
+    top: 28px;
+    width: 28px;
+    height: 34px;
+    border-radius: 8px;
+}
+
+.filter.opacity { left: 8px; background: #ff453a; opacity: 0.45; }
+.filter.color { left: 36px; background: #64d2ff; filter: sepia(1) saturate(1.5); }
+.filter.blur { left: 64px; background: #30d158; filter: blur(3px); }
+.filter.shadow { left: 88px; background: #ffffff; filter: drop-shadow(#ffd60aff 8px 8px 2px); }
+
+.filter2
+{
+    position: absolute;
+    display: block;
+    top: 28px;
+    width: 24px;
+    height: 36px;
+    background: #64d2ff;
+}
+
+.filter2.brightness { left: 8px; filter: brightness(1.8); }
+.filter2.contrast { left: 38px; filter: contrast(1.8); }
+.filter2.invert { left: 68px; filter: invert(1); }
+.filter2.grayscale { left: 98px; filter: grayscale(1); }
+.filter2.sepia { left: 128px; filter: sepia(1); }
+.filter2.hue { left: 158px; filter: hue-rotate(120deg); }
+.filter2.saturate { left: 188px; filter: saturate(2.2); }
+
+.gradient
+{
+    position: absolute;
+    display: block;
+    left: 8px;
+    width: 88px;
+    height: 20px;
+}
+
+.gradient.linear { top: 12px; decorator: linear-gradient(90deg, #ff453a, #ffd60a, #0a84ff); }
+.gradient.radial { top: 38px; decorator: radial-gradient(circle closest-side at 35% 50%, #ffffff, #30d158, #005a2b); }
+.gradient.conic { top: 64px; decorator: conic-gradient(from 45deg at center, #ff453a, #ffd60a, #30d158, #0a84ff, #ff453a); }
+
+.gradient2
+{
+    position: absolute;
+    display: block;
+    left: 8px;
+    width: 164px;
+    height: 20px;
+}
+
+.gradient2.repeating-linear { top: 12px; decorator: repeating-linear-gradient(90deg, #ff453a 0%, #ffd60a 20%, #0a84ff 40%); }
+.gradient2.repeating-radial { top: 38px; decorator: repeating-radial-gradient(circle closest-side at center, #ffffff 0%, #30d158 18%, #005a2b 36%); }
+.gradient2.repeating-conic { top: 64px; decorator: repeating-conic-gradient(from 0deg at center, #ff453a 0%, #ffd60a 18%, #30d158 36%); }
+
+.stress-label
+{
+    position: absolute;
+    display: block;
+    left: 12px;
+    top: 8px;
+    color: #111111aa;
+    font-size: 13px;
+}
+
+.stress-wrapper
+{
+    position: absolute;
+    display: block;
+    width: 176px;
+    height: 68px;
+}
+
+.noop-filter
+{
+    filter: opacity(1) sepia(0) grayscale(0) saturate(1) brightness(1) contrast(1) hue-rotate(0deg) invert(0) blur(0px);
+}
+
+.stress-box
+{
+    position: absolute;
+    display: block;
+    box-sizing: border-box;
+    width: 156px;
+    height: 48px;
+    padding: 10px;
+    border-width: 2px;
+    border-color: #def6f7;
+    border-radius: 24px 8px;
+    background: #f5f7f8ee;
+    color: #111;
+    font-size: 13px;
+}
+
+.transformed-shadow
+{
+    left: 62px;
+    top: 42px;
+    transform: rotate3d(0.2, 0.4, 0.1, 15deg);
+}
+
+.soft-shadow
+{
+    box-shadow: #f00f 28px 22px 16px 0px, #00ff -26px -20px 28px 0px, #0f08 -32px 42px 34px 0px, #333a 0px 0px 18px 10px inset;
+}
+
+.trail-contract
+{
+    left: 300px;
+    top: 42px;
+}
+
+.trail-shadow
+{
+    filter: opacity(1);
+    box-shadow: #f66 22px 22px 0 0, #c88 44px 44px 0 0, #baa 66px 66px 0 0, #ffac 0 0 8px 8px inset;
+}
+
+.inset-clip
+{
+    left: 560px;
+    top: 42px;
+    overflow: hidden;
+    border-radius: 24px 8px;
+}
+
+.inset-shadow
+{
+    box-shadow: #f4fd 10px 5px 5px 3px inset;
+}
+
+.stress-backdrop-bg
+{
+    position: absolute;
+    display: block;
+    border-radius: 22px;
+}
+
+.stress-backdrop-bg.red { left: 78px; top: 142px; width: 160px; height: 24px; background: #ff2d55; }
+.stress-backdrop-bg.green { left: 126px; top: 122px; width: 150px; height: 46px; background: #32d74b; }
+.stress-backdrop-bg.blue { left: 170px; top: 106px; width: 150px; height: 24px; background: #0a84ff; }
+
+.backdrop-window
+{
+    left: 96px;
+    top: 116px;
+    width: 188px;
+    height: 54px;
+    background: #ffffff88;
+    backdrop-filter: blur(5px);
+}
+
+.multi-source-a
+{
+    left: 402px;
+    top: 124px;
+}
+
+.multi-source-b
+{
+    left: 562px;
+    top: 136px;
+}
+
+.small-shadow
+{
+    box-shadow: #ffd60acc 12px 10px 4px 0px;
+    filter: drop-shadow(#ff453acc 8px 8px 3px);
+}
+
+.small-inset
+{
+    box-shadow: #bf5af2dd 0 0 6px inset;
+}
+</style>
+</head>
+<body>
+    <div id="orientation">
+        <div class="corner tl"></div>
+        <div class="corner tr"></div>
+        <div class="corner bl"></div>
+        <div class="corner br"></div>
+    </div>
+    <div id="clip_mask">
+        <div class="clip-a"></div>
+        <div class="clip-b"></div>
+    </div>
+    <div id="filters">
+        <div class="filter opacity"></div>
+        <div class="filter color"></div>
+        <div class="filter blur"></div>
+        <div class="filter shadow"></div>
+    </div>
+    <div id="gradients">
+        <div class="gradient linear"></div>
+        <div class="gradient radial"></div>
+        <div class="gradient conic"></div>
+    </div>
+    <div id="saved_mask"><div></div></div>
+    <div id="transform_clip">
+        <div class="transform-content"></div>
+    </div>
+    <div id="individual_filters">
+        <div class="filter2 brightness"></div>
+        <div class="filter2 contrast"></div>
+        <div class="filter2 invert"></div>
+        <div class="filter2 grayscale"></div>
+        <div class="filter2 sepia"></div>
+        <div class="filter2 hue"></div>
+        <div class="filter2 saturate"></div>
+    </div>
+    <div id="repeating_gradients">
+        <div class="gradient2 repeating-linear"></div>
+        <div class="gradient2 repeating-radial"></div>
+        <div class="gradient2 repeating-conic"></div>
+    </div>
+    <div id="effects_stress">
+        <div class="stress-label">effects stress</div>
+        <div class="stress-wrapper noop-filter transformed-shadow">
+            <div class="stress-box soft-shadow">transform + blur shadow</div>
+        </div>
+        <div class="stress-wrapper noop-filter trail-contract">
+            <div class="stress-box trail-shadow">trail opacity(1)</div>
+        </div>
+        <div class="stress-wrapper inset-clip">
+            <div class="stress-box inset-shadow">rounded inset</div>
+        </div>
+        <div class="stress-backdrop-bg red"></div>
+        <div class="stress-backdrop-bg green"></div>
+        <div class="stress-backdrop-bg blue"></div>
+        <div class="stress-box backdrop-window">backdrop blur</div>
+        <div class="stress-wrapper noop-filter multi-source-a">
+            <div class="stress-box small-shadow">multi comp A</div>
+        </div>
+        <div class="stress-wrapper noop-filter multi-source-b">
+            <div class="stress-box small-inset">multi comp B</div>
+        </div>
+    </div>
+</body>
+</rml>
