@@ -76,6 +76,83 @@ void add_valid_content_bounds(LayerRecord& layer, FbRect bounds)
     layer.has_valid_content_bounds = true;
 }
 
+bool contains_rect(FbRect outer, FbRect inner)
+{
+    if (is_empty(inner)) {
+        return true;
+    }
+    if (is_empty(outer)) {
+        return false;
+    }
+    return inner.x >= outer.x && inner.y >= outer.y && inner.x + inner.w <= outer.x + outer.w &&
+           inner.y + inner.h <= outer.y + outer.h;
+}
+
+struct PreservedLayerContents {
+    RenderTargetRecord* scratch = nullptr;
+    FbRect global_bounds{};
+};
+
+std::optional<PreservedLayerContents> preserve_layer_contents(const BgfxLayerCompositeContext& ctx,
+                                                              const LayerRecord& layer,
+                                                              FbRect required_bounds)
+{
+    if (!layer.materialized || !bgfx::isValid(layer.framebuffer) ||
+        contains_rect(layer.bounds.framebuffer, required_bounds)) {
+        return std::nullopt;
+    }
+
+    FbRect preserve_bounds = layer.has_valid_content_bounds
+                                 ? intersect(layer.valid_content_bounds, layer.bounds.framebuffer)
+                                 : layer.bounds.framebuffer;
+    if (is_empty(preserve_bounds)) {
+        return std::nullopt;
+    }
+
+    RenderTargetRecord* scratch =
+        ctx.ensure_target(PostprocessTargetKind::Scratch, preserve_bounds);
+    if (!scratch) {
+        return PreservedLayerContents{};
+    }
+
+    const FbRect scratch_local_bounds{0, 0, scratch->texture_width, scratch->texture_height};
+    if (!ctx.composite(make_layer_composite_op(
+            make_layer_texture_region(layer.color, layer.bounds.framebuffer,
+                                      local_rect_for_layer(preserve_bounds, layer),
+                                      layer.texture_width, layer.texture_height),
+            scratch->framebuffer, Rml::BlendMode::Replace, ScissorState{false, {}}, false, 1,
+            RmlUiPassKind::Copy, RmlUiPassReason::LayerScratchCopy, "RmlUi.LayerPreserveCopy",
+            scratch_local_bounds))) {
+        return PreservedLayerContents{};
+    }
+
+    return PreservedLayerContents{scratch, preserve_bounds};
+}
+
+bool restore_layer_contents(const BgfxLayerCompositeContext& ctx,
+                            const PreservedLayerContents& saved,
+                            const LayerRecord& destination_layer)
+{
+    if (!saved.scratch || !bgfx::isValid(saved.scratch->color)) {
+        return true;
+    }
+
+    const FbRect destination_local_bounds =
+        local_rect_for_layer(saved.global_bounds, destination_layer);
+    if (is_empty(destination_local_bounds)) {
+        return true;
+    }
+
+    return ctx.composite(make_layer_composite_op(
+        make_layer_texture_region(
+            saved.scratch->color, saved.global_bounds,
+            LocalFbRect{0, 0, saved.scratch->texture_width, saved.scratch->texture_height},
+            saved.scratch->texture_width, saved.scratch->texture_height),
+        destination_layer.framebuffer, Rml::BlendMode::Replace, ScissorState{false, {}}, false, 1,
+        RmlUiPassKind::Copy, RmlUiPassReason::LayerScratchCopy, "RmlUi.LayerPreserveRestore",
+        destination_local_bounds));
+}
+
 } // namespace
 
 void composite_layers_optimized(BgfxLayerSystem& layer_system, const BgfxLayerCompositeContext& ctx,
@@ -199,16 +276,19 @@ void composite_layers_optimized(BgfxLayerSystem& layer_system, const BgfxLayerCo
     // such as inset box-shadow depend on transparent margins inside the layer, and trimming them
     // shifts the filtered result relative to the geometry that later samples the saved texture.
     // If a filter property was present, keep the filter/window allocation contract separate from
-    // the actual source pixels. No-op filter chains still need the wider RmlUi layer contract, but
-    // sampling should stay limited to content that can contribute pixels.
+    // the actual source pixels for real postprocess chains. No-op filter chains are different:
+    // the pipeline will return without running a pass, so preserve the RmlUi layer contract here
+    // instead of shrinking the composite to the tracked content bounds.
     FbRect source_valid_global =
         source_recorded_is_complete && source_layer->has_valid_content_bounds
             ? intersect(source_layer->valid_content_bounds, source_layer->bounds.framebuffer)
             : source_layer->bounds.framebuffer;
-    if (has_filter_contract) {
+    if (has_filter_contract && has_effective_filters) {
         source_valid_global = source_layer->has_valid_content_bounds
                                   ? intersect(source_layer->valid_content_bounds, source_required)
                                   : source_required;
+    } else if (has_filter_contract) {
+        source_valid_global = source_required;
     }
     const RenderBounds filter_source_bounds =
         source_required_is_root_transform_scissor
@@ -355,11 +435,32 @@ void composite_layers_optimized(BgfxLayerSystem& layer_system, const BgfxLayerCo
         const FbRect dst_bounds =
             dst ? union_rects(dst->bounds.framebuffer, filtered.output_bounds.framebuffer)
                 : filtered.output_bounds.framebuffer;
+        std::optional<PreservedLayerContents> preserved_destination;
+        if (dst) {
+            preserved_destination = preserve_layer_contents(ctx, *dst, dst_bounds);
+            if (preserved_destination && !preserved_destination->scratch) {
+                if (ctx.fail_frame) {
+                    ctx.fail_frame("CompositeLayers failed to preserve destination layer");
+                }
+                return;
+            }
+        }
         if (!ctx.materialize_layer(destination, dst_bounds)) {
             if (ctx.fail_frame) {
                 ctx.fail_frame("CompositeLayers failed to materialize destination layer");
             }
             return;
+        }
+        if (preserved_destination) {
+            LayerRecord* materialized_destination =
+                layer_system.materialized_layer_for_handle(destination, ctx.direct_base_requested);
+            if (!materialized_destination ||
+                !restore_layer_contents(ctx, *preserved_destination, *materialized_destination)) {
+                if (ctx.fail_frame) {
+                    ctx.fail_frame("CompositeLayers failed to restore destination layer");
+                }
+                return;
+            }
         }
     }
     destination_layer =

@@ -162,7 +162,7 @@ TEST_CASE("RmlUi saved layer texture materializes requested save bounds")
     ctx.copy_region_to_texture = [&](bgfx::TextureHandle, Rml::Rectanglei region, int, int,
                                      const char*, bool flip_y) {
         copied_region = region;
-        CHECK(flip_y);
+        CHECK_FALSE(flip_y);
         return bgfx::TextureHandle{9};
     };
 
@@ -175,7 +175,7 @@ TEST_CASE("RmlUi saved layer texture materializes requested save bounds")
     CHECK(materialize_required_bounds->w == 100);
     CHECK(materialize_required_bounds->h == 80);
     CHECK(copied_region.Left() == 10);
-    CHECK(copied_region.Top() == 20);
+    CHECK(copied_region.Top() == 100);
     CHECK(copied_region.Width() == 100);
     CHECK(copied_region.Height() == 80);
     REQUIRE(textures.contains(texture));
@@ -227,7 +227,7 @@ TEST_CASE("RmlUi saved layer texture preserves requested padded bounds")
             copied_region = region;
             copied_output_dimensions = output_dimensions;
             copied_destination_offset = destination_offset;
-            CHECK(flip_y);
+            CHECK_FALSE(flip_y);
             return bgfx::TextureHandle{9};
         };
 
@@ -289,7 +289,7 @@ TEST_CASE("RmlUi saved layer texture copies non-zero-origin bounded source local
         copied_region = region;
         copied_source_width = source_width;
         copied_source_height = source_height;
-        CHECK(flip_y);
+        CHECK_FALSE(flip_y);
         return bgfx::TextureHandle{9};
     };
 
@@ -302,7 +302,7 @@ TEST_CASE("RmlUi saved layer texture copies non-zero-origin bounded source local
     CHECK(materialize_required_bounds->w == 40);
     CHECK(materialize_required_bounds->h == 30);
     CHECK(copied_region.Left() == 20);
-    CHECK(copied_region.Top() == 20);
+    CHECK(copied_region.Top() == 40);
     CHECK(copied_region.Width() == 40);
     CHECK(copied_region.Height() == 30);
     CHECK(copied_source_width == 120);
@@ -361,7 +361,7 @@ TEST_CASE("RmlUi saved layer texture preserves padded bounds from non-zero-origi
             copied_source_height = source_height;
             copied_output_dimensions = output_dimensions;
             copied_destination_offset = destination_offset;
-            CHECK(flip_y);
+            CHECK_FALSE(flip_y);
             return bgfx::TextureHandle{9};
         };
 

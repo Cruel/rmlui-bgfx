@@ -842,9 +842,6 @@ struct RenderInterface::Impl {
             return;
         }
         FbRect bounds = *maybe_bounds;
-        const FbRect container = layer_limit_bounds(layer);
-        if (!is_empty(container))
-            bounds = intersect(bounds, container);
         if (clip_mask_enabled)
             bounds = apply_mask_constraints(bounds, nullptr, &layer.conservative_mask_bounds);
         if (is_empty(bounds))
