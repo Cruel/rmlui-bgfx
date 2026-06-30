@@ -687,6 +687,7 @@ bool BgfxReferenceRenderer::ensure_fullscreen_geometry()
 BgfxDrawResources BgfxReferenceRenderer::draw_resources() const
 {
     return BgfxDrawResources{m_fullscreen_vb,
+                             m_ctx.geometry_layout,
                              m_ctx.white_texture,
                              m_ctx.uniforms.sampler,
                              m_ctx.uniforms.mask_sampler,

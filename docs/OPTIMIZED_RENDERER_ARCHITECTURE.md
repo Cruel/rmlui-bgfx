@@ -110,6 +110,13 @@ A saved mask record should carry:
 
 Saved textures already flow through `TextureRecord` with `TextureOwnership::SavedLayer`. Do not add a parallel saved-texture registry unless a concrete correctness bug requires additional metadata.
 
+`SaveLayerAsTexture()` in the optimized path has two separate coordinate contracts:
+
+- The source rectangle is requested in global framebuffer space, but the materialized layer may be a compact/bounded target. Convert the request to the layer's target-local source rectangle before copying. This is a source-region rebase, not a visual flip.
+- The copied saved texture is later replayed through ordinary RmlUi geometry. Saved-layer textures produced from bounded render targets are sampled with the bgfx render-target texture origin, while RmlUi geometry UVs expect the saved callback texture convention. Correct this at replay by submitting adjusted vertex texcoords only for `TextureOwnership::SavedLayer`; do not require a saved-texture branch in the RmlUi system shader or user material shaders.
+
+Do not "simplify" this by copying a full-frame source, and do not fix it by adding shader ABI that every element shader must understand. The copy should preserve the compact source contents; the replay path owns the saved-texture sampling-origin correction.
+
 ### 4. Filter and composite pipeline
 
 Filter planning should remain in global framebuffer space. Conversion to target-local rectangles must happen at draw, copy, postprocess, or composite submission boundaries.

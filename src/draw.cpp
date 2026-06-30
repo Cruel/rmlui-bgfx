@@ -1,5 +1,4 @@
 #include "rmlui_bgfx_draw.hpp"
-
 #include <algorithm>
 
 namespace rmlui_bgfx {
@@ -78,7 +77,25 @@ bool BgfxDrawContext::submit_geometry(const RmlUiPass& pass, const BgfxDrawResou
     // Non-transformed bounded replay keeps translation in RmlUi/global logical coordinates. The
     // layer projection encodes the compact target's global logical bounds, so subtracting the layer
     // origin here would double-rebase geometry.
-    bgfx::setVertexBuffer(0, geometry.vb);
+    bgfx::TransientVertexBuffer flipped_vb{};
+    if (state.flip_texture_y) {
+        if (geometry.vertices.empty() || !resources.geometry_layout ||
+            bgfx::getAvailTransientVertexBuffer(uint32_t(geometry.vertices.size()),
+                                                *resources.geometry_layout) <
+                geometry.vertices.size()) {
+            return false;
+        }
+        bgfx::allocTransientVertexBuffer(&flipped_vb, uint32_t(geometry.vertices.size()),
+                                         *resources.geometry_layout);
+        auto* destination_vertices = reinterpret_cast<RmlVertex*>(flipped_vb.data);
+        for (size_t i = 0; i < geometry.vertices.size(); ++i) {
+            destination_vertices[i] = geometry.vertices[i];
+            destination_vertices[i].v = 1.0f - destination_vertices[i].v;
+        }
+        bgfx::setVertexBuffer(0, &flipped_vb);
+    } else {
+        bgfx::setVertexBuffer(0, geometry.vb);
+    }
     bgfx::setIndexBuffer(geometry.ib, 0, geometry.index_count);
     bgfx::setUniform(resources.projection_uniform, layer.projection);
     bgfx::setUniform(resources.transform_uniform,

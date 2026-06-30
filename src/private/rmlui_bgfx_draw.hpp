@@ -14,6 +14,7 @@ namespace rmlui_bgfx {
 
 struct BgfxDrawResources {
     bgfx::VertexBufferHandle fullscreen_vb = BGFX_INVALID_HANDLE;
+    const bgfx::VertexLayout* geometry_layout = nullptr;
     bgfx::TextureHandle white_texture = BGFX_INVALID_HANDLE;
 
     bgfx::UniformHandle sampler = BGFX_INVALID_HANDLE;
@@ -57,6 +58,7 @@ struct BgfxGeometryDrawState {
     bool clip_mask_enabled = false;
     bool msaa_enabled = false;
     uint32_t stencil_state = 0;
+    bool flip_texture_y = false;
 };
 
 struct BgfxGradientDrawState {

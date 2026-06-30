@@ -43,14 +43,6 @@ constexpr uint64_t kRmlBlendState =
                                    BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_INV_SRC_ALPHA);
 constexpr uint32_t kGradientStopLimit = 16;
 
-struct RmlVertex {
-    float px;
-    float py;
-    uint32_t rgba;
-    float u;
-    float v;
-};
-
 TextureRegion texture_region(bgfx::TextureHandle texture, GlobalFbRect global_bounds,
                              LocalFbRect local_rect, int texture_width, int texture_height)
 {
@@ -1322,8 +1314,10 @@ struct RenderInterface::Impl {
             return;
         perf.add_geometry(uint64_t(lw) * uint64_t(lh), geometry.index_count);
         bgfx::TextureHandle bgfx_texture = white_texture;
+        bool flip_texture_y = false;
         if (auto it = textures.find(texture); it != textures.end()) {
             bgfx_texture = it->second.handle;
+            flip_texture_y = it->second.ownership == TextureOwnership::SavedLayer;
         }
         // Keep translation in RmlUi/global logical space. For compact non-transformed layers,
         // layer->projection already maps that global logical rectangle into the target-local view.
@@ -1332,7 +1326,7 @@ struct RenderInterface::Impl {
             BgfxGeometryDrawState{translation, bgfx_texture,
                                   ScissorState{scissor_enabled, scissor_region}, transform_valid,
                                   transform, layer->clip_mask_enabled, layer->msaa_enabled,
-                                  stencil_test_state()});
+                                  stencil_test_state(), flip_texture_y});
         add_submitted_region(*layer, geometry, translation);
     }
 
@@ -1351,6 +1345,7 @@ struct RenderInterface::Impl {
     BgfxDrawResources draw_resources() const
     {
         return BgfxDrawResources{fullscreen_vb,
+                                 &layout,
                                  white_texture,
                                  sampler,
                                  mask_sampler,
@@ -1425,6 +1420,7 @@ struct RenderInterface::Impl {
                                                      shadow_offset_uniform};
         context.identity = identity;
         context.premultiplied_blend_state = kRmlBlendState;
+        context.geometry_layout = &layout;
         context.reference_msaa_samples = reference_msaa_samples;
         context.trace = trace_filter_pipeline;
         return context;
@@ -2313,8 +2309,8 @@ Rml::CompiledGeometryHandle RenderInterface::CompileGeometry(Rml::Span<const Rml
         return 0;
     }
     const Rml::CompiledGeometryHandle handle = ++m_impl->geometry_counter;
-    m_impl->geometries.emplace(
-        handle, GeometryRecord{vb, ib, uint32_t(converted_indices.size()), local_bounds.logical});
+    m_impl->geometries.emplace(handle, GeometryRecord{vb, ib, uint32_t(converted_indices.size()),
+                                                      local_bounds.logical, std::move(converted)});
     return handle;
 }
 

@@ -289,20 +289,27 @@ Rml::TextureHandle BgfxLayerSystem::save_layer_as_texture(const BgfxLayerSaveTex
 
     bgfx::TextureHandle texture = BGFX_INVALID_HANDLE;
     const Rml::Vector2i output_dimensions{bounds.Width(), bounds.Height()};
+    Rml::Rectanglei copy_bounds = rectangle_from_fb(local_bounds);
+    // Rebase the requested global save rect into the compact render target. This is not a visual
+    // flip; saved-layer replay corrects callback texture coordinates before draw submission.
+    if (layer->texture_height > local_bounds.h) {
+        const int sample_top = layer->texture_height - copy_bounds.Bottom();
+        copy_bounds = Rml::Rectanglei::FromPositionSize(
+            {copy_bounds.Left(), sample_top}, {copy_bounds.Width(), copy_bounds.Height()});
+    }
     if (local_bounds.w == global_bounds.w && local_bounds.h == global_bounds.h) {
-        texture = ctx.copy_region_to_texture(layer->color, rectangle_from_fb(local_bounds),
-                                             layer->texture_width, layer->texture_height,
-                                             "RmlUi.SaveLayerAsTexture", true);
+        texture =
+            ctx.copy_region_to_texture(layer->color, copy_bounds, layer->texture_width,
+                                       layer->texture_height, "RmlUi.SaveLayerAsTexture", false);
     } else if (ctx.copy_region_to_sized_texture) {
         const FbRect overlap_global = intersect(global_bounds, layer->bounds.framebuffer);
         // Offset is in saved-texture-local coordinates, preserving GL3's requested scissor-sized
         // output even when the bounded layer only contains an overlapping subregion.
         const Rml::Vector2i destination_offset{overlap_global.x - global_bounds.x,
                                                overlap_global.y - global_bounds.y};
-        texture = ctx.copy_region_to_sized_texture(layer->color, rectangle_from_fb(local_bounds),
-                                                   layer->texture_width, layer->texture_height,
-                                                   output_dimensions, destination_offset,
-                                                   "RmlUi.SaveLayerAsTexture", true);
+        texture = ctx.copy_region_to_sized_texture(
+            layer->color, copy_bounds, layer->texture_width, layer->texture_height,
+            output_dimensions, destination_offset, "RmlUi.SaveLayerAsTexture", false);
     }
     if (!bgfx::isValid(texture)) {
         if (ctx.fail_frame) {

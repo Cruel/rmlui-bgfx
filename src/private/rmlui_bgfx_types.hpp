@@ -20,11 +20,20 @@ namespace rmlui_bgfx {
 using GlobalFbRect = FbRect;
 using LocalFbRect = FbRect;
 
+struct RmlVertex {
+    float x;
+    float y;
+    uint32_t abgr;
+    float u;
+    float v;
+};
+
 struct GeometryRecord {
     bgfx::VertexBufferHandle vb = BGFX_INVALID_HANDLE;
     bgfx::IndexBufferHandle ib = BGFX_INVALID_HANDLE;
     uint32_t index_count = 0;
     LogicalRect local_bounds;
+    std::vector<RmlVertex> vertices;
 };
 
 struct TextureRecord {

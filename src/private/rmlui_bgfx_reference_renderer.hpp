@@ -73,6 +73,7 @@ struct ReferenceRendererContext {
     const float* identity = nullptr;
     uint64_t premultiplied_blend_state = 0;
 
+    const bgfx::VertexLayout* geometry_layout = nullptr;
     uint8_t reference_msaa_samples = 2;
     bool trace = false;
 };
