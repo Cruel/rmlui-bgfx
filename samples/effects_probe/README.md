@@ -17,6 +17,8 @@ RMLUI_BGFX_RENDER_PATH=optimized /path/to/rmlui-bgfx/build/linux-samples/samples
 
 Use `RMLUI_BGFX_RENDER_PATH=reference` to explicitly select the default correctness path. Set `RMLUI_BGFX_FILTER_TRACE=1` to print filter/layer diagnostics while narrowing a failing case. Set it back to `0` for visual comparison.
 
+Phase 8's experimental bounded transformed-layer path is disabled by default. To compare it against the default optimized transform fallback, run the same probe with `RMLUI_BGFX_BOUNDED_TRANSFORM_LAYERS=1 RMLUI_BGFX_RENDER_PATH=optimized`.
+
 Cases:
 
 - `00` tests `u_rmluiMaterialParams0.x` elapsed time animation.

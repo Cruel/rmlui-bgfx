@@ -77,12 +77,16 @@ TEST_CASE("RmlUi target metadata names are stable for diagnostics")
     CHECK(postprocess_target_kind_name(PostprocessTargetKind::Primary) == std::string("Primary"));
     CHECK(postprocess_target_kind_name(PostprocessTargetKind::Secondary) ==
           std::string("Secondary"));
-    CHECK(postprocess_target_kind_name(PostprocessTargetKind::Tertiary) ==
-          std::string("Tertiary"));
+    CHECK(postprocess_target_kind_name(PostprocessTargetKind::Tertiary) == std::string("Tertiary"));
     CHECK(postprocess_target_kind_name(PostprocessTargetKind::BlendMask) ==
           std::string("BlendMask"));
-    CHECK(postprocess_target_kind_name(PostprocessTargetKind::Scratch) ==
-          std::string("Scratch"));
+    CHECK(postprocess_target_kind_name(PostprocessTargetKind::Scratch) == std::string("Scratch"));
+}
+
+TEST_CASE("RmlUi renderer config defaults keep bounded transformed layers disabled")
+{
+    RendererConfig config;
+    CHECK_FALSE(config.bounded_transform_layers);
 }
 
 TEST_CASE("RmlUi target metadata defaults are safe and explicit")
@@ -257,6 +261,95 @@ TEST_CASE("RmlUi clip replay assumptions stay conservative")
     const auto reset = plan_stencil_clip_operation(1, ClipOperationPlan::Set);
     CHECK(reset.previous_ref == 1);
     CHECK(reset.next_ref == 1);
+}
+
+TEST_CASE("RmlUi bounded transformed layer planner keeps the default fallback disabled")
+{
+    TransformedLayerBoundsInputs inputs;
+    inputs.push_transform_valid = true;
+    inputs.has_valid_content_bounds = true;
+
+    const auto plan = plan_transformed_layer_bounds(inputs);
+    CHECK_FALSE(plan.bounded);
+    CHECK(plan.fallback == TransformLayerFallbackReason::Disabled);
+    CHECK(std::string(transform_layer_fallback_reason_name(plan.fallback)) == "Disabled");
+}
+
+TEST_CASE("RmlUi bounded transformed layer planner accepts valid content behind toggle")
+{
+    TransformedLayerBoundsInputs inputs;
+    inputs.bounded_transform_layers_enabled = true;
+    inputs.push_transform_valid = true;
+    inputs.has_valid_content_bounds = true;
+
+    const auto plan = plan_transformed_layer_bounds(inputs);
+    CHECK(plan.bounded);
+    CHECK(plan.fallback == TransformLayerFallbackReason::None);
+}
+
+TEST_CASE("RmlUi bounded transformed layer planner keeps conservative fallback reasons explicit")
+{
+    TransformedLayerBoundsInputs inputs;
+    inputs.bounded_transform_layers_enabled = true;
+    inputs.push_transform_valid = true;
+    inputs.has_valid_content_bounds = true;
+
+    SECTION("invalid transformed bounds")
+    {
+        inputs.invalid_transformed_bounds = true;
+        const auto plan = plan_transformed_layer_bounds(inputs);
+        CHECK_FALSE(plan.bounded);
+        CHECK(plan.fallback == TransformLayerFallbackReason::InvalidTransformedBounds);
+    }
+
+    SECTION("content bounds transform fallback")
+    {
+        inputs.content_bounds_transform_fallback = true;
+        const auto plan = plan_transformed_layer_bounds(inputs);
+        CHECK_FALSE(plan.bounded);
+        CHECK(plan.fallback == TransformLayerFallbackReason::InvalidTransformedBounds);
+    }
+
+    SECTION("inverse clip")
+    {
+        inputs.content_bounds_inverse_mask_fallback = true;
+        const auto plan = plan_transformed_layer_bounds(inputs);
+        CHECK_FALSE(plan.bounded);
+        CHECK(plan.fallback == TransformLayerFallbackReason::InverseClipConservativeFallback);
+    }
+
+    SECTION("saved texture callback")
+    {
+        inputs.has_saved_texture_transform_contract = true;
+        const auto plan = plan_transformed_layer_bounds(inputs);
+        CHECK_FALSE(plan.bounded);
+        CHECK(plan.fallback == TransformLayerFallbackReason::SavedTextureTransformContract);
+    }
+
+    SECTION("saved mask mapping")
+    {
+        inputs.saved_mask_mapping_supported = false;
+        const auto plan = plan_transformed_layer_bounds(inputs);
+        CHECK_FALSE(plan.bounded);
+        CHECK(plan.fallback == TransformLayerFallbackReason::SavedMaskMappingUnsupported);
+    }
+
+    SECTION("missing content and required bounds")
+    {
+        inputs.has_valid_content_bounds = false;
+        inputs.has_required_bounds = false;
+        const auto plan = plan_transformed_layer_bounds(inputs);
+        CHECK_FALSE(plan.bounded);
+        CHECK(plan.fallback == TransformLayerFallbackReason::UnsupportedTransformRebase);
+    }
+}
+
+TEST_CASE("RmlUi bounded transformed push planner only scopes transformed pushes behind toggle")
+{
+    CHECK_FALSE(should_bound_transformed_push_layer(false, true, true));
+    CHECK_FALSE(should_bound_transformed_push_layer(true, false, true));
+    CHECK_FALSE(should_bound_transformed_push_layer(true, true, false));
+    CHECK(should_bound_transformed_push_layer(true, true, true));
 }
 
 TEST_CASE("RmlUi gaussian kernel is normalized")

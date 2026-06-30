@@ -139,6 +139,46 @@ struct StencilClipPlan {
 [[nodiscard]] StencilClipPlan plan_stencil_clip_operation(uint8_t current_ref,
                                                           ClipOperationPlan operation);
 
+enum class TransformLayerFallbackReason {
+    None,
+    Disabled,
+    SavedTextureTransformContract,
+    UnsupportedTransformRebase,
+    UnboundedClipMask,
+    InverseClipConservativeFallback,
+    SavedMaskMappingUnsupported,
+    InvalidTransformedBounds,
+};
+
+[[nodiscard]] const char* transform_layer_fallback_reason_name(TransformLayerFallbackReason reason);
+
+struct TransformedLayerBoundsInputs {
+    bool bounded_transform_layers_enabled = false;
+    bool push_transform_valid = false;
+    bool content_bounds_transform_fallback = false;
+    bool content_bounds_inverse_mask_fallback = false;
+    bool has_saved_texture_transform_contract = false;
+    bool saved_mask_mapping_supported = true;
+    bool has_valid_content_bounds = false;
+    bool has_required_bounds = false;
+    bool has_layer_limit_bounds = false;
+    bool has_valid_push_scissor = false;
+    bool invalid_transformed_bounds = false;
+    bool unbounded_clip_mask = false;
+};
+
+struct TransformedLayerBoundsPlan {
+    bool bounded = false;
+    TransformLayerFallbackReason fallback = TransformLayerFallbackReason::None;
+};
+
+[[nodiscard]] TransformedLayerBoundsPlan
+plan_transformed_layer_bounds(const TransformedLayerBoundsInputs& inputs);
+
+[[nodiscard]] bool should_bound_transformed_push_layer(bool bounded_transform_layers_enabled,
+                                                       bool push_transform_valid,
+                                                       bool has_valid_scissor);
+
 struct GaussianKernel {
     std::vector<float> weights;
 };

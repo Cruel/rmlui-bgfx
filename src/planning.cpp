@@ -171,6 +171,64 @@ StencilClipPlan plan_stencil_clip_operation(uint8_t current_ref, ClipOperationPl
     return plan;
 }
 
+const char* transform_layer_fallback_reason_name(TransformLayerFallbackReason reason)
+{
+    switch (reason) {
+    case TransformLayerFallbackReason::None:
+        return "None";
+    case TransformLayerFallbackReason::Disabled:
+        return "Disabled";
+    case TransformLayerFallbackReason::SavedTextureTransformContract:
+        return "SavedTextureTransformContract";
+    case TransformLayerFallbackReason::UnsupportedTransformRebase:
+        return "UnsupportedTransformRebase";
+    case TransformLayerFallbackReason::UnboundedClipMask:
+        return "UnboundedClipMask";
+    case TransformLayerFallbackReason::InverseClipConservativeFallback:
+        return "InverseClipConservativeFallback";
+    case TransformLayerFallbackReason::SavedMaskMappingUnsupported:
+        return "SavedMaskMappingUnsupported";
+    case TransformLayerFallbackReason::InvalidTransformedBounds:
+        return "InvalidTransformedBounds";
+    }
+    return "Unknown";
+}
+
+TransformedLayerBoundsPlan plan_transformed_layer_bounds(const TransformedLayerBoundsInputs& inputs)
+{
+    if (!inputs.push_transform_valid) {
+        return {true, TransformLayerFallbackReason::None};
+    }
+    if (!inputs.bounded_transform_layers_enabled) {
+        return {false, TransformLayerFallbackReason::Disabled};
+    }
+    if (inputs.has_saved_texture_transform_contract) {
+        return {false, TransformLayerFallbackReason::SavedTextureTransformContract};
+    }
+    if (!inputs.saved_mask_mapping_supported) {
+        return {false, TransformLayerFallbackReason::SavedMaskMappingUnsupported};
+    }
+    if (inputs.content_bounds_inverse_mask_fallback) {
+        return {false, TransformLayerFallbackReason::InverseClipConservativeFallback};
+    }
+    if (inputs.unbounded_clip_mask) {
+        return {false, TransformLayerFallbackReason::UnboundedClipMask};
+    }
+    if (inputs.invalid_transformed_bounds || inputs.content_bounds_transform_fallback) {
+        return {false, TransformLayerFallbackReason::InvalidTransformedBounds};
+    }
+    if (!inputs.has_valid_content_bounds && !inputs.has_required_bounds) {
+        return {false, TransformLayerFallbackReason::UnsupportedTransformRebase};
+    }
+    return {true, TransformLayerFallbackReason::None};
+}
+
+bool should_bound_transformed_push_layer(bool bounded_transform_layers_enabled,
+                                         bool push_transform_valid, bool has_valid_scissor)
+{
+    return bounded_transform_layers_enabled && push_transform_valid && has_valid_scissor;
+}
+
 GaussianKernel gaussian_kernel(float sigma)
 {
     GaussianKernel kernel;

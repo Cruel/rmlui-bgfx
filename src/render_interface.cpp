@@ -225,6 +225,7 @@ struct RenderInterface::Impl {
           blur_sample_bounds_mode(config.blur_sample_bounds_mode),
           reference_msaa_samples(config.reference_msaa_samples),
           trace_filter_pipeline(config.trace_filter_pipeline),
+          bounded_transform_layers(config.bounded_transform_layers),
           pass_builder(config.views.begin, config.views.end, &perf),
           perf_logging_enabled(config.enable_perf_logging)
     {
@@ -590,13 +591,23 @@ struct RenderInterface::Impl {
                 scissor_ptr = &scissor_fb;
             }
         }
-        if (count_fallbacks && (!scissor_ptr || captured_transform_valid)) {
+        const bool bound_transformed_push = should_bound_transformed_push_layer(
+            bounded_transform_layers, captured_transform_valid, scissor_ptr != nullptr);
+        if (count_fallbacks &&
+            (!scissor_ptr || (captured_transform_valid && !bound_transformed_push))) {
             const_cast<rmlui_bgfx::PerfCounters&>(perf).add_unbounded_layer_fallback(
-                !scissor_ptr, captured_transform_valid);
+                !scissor_ptr, captured_transform_valid && !bound_transformed_push);
+        }
+        if (trace_filter_pipeline && captured_transform_valid) {
+            std::fprintf(stderr,
+                         "[rmlui-bgfx][transform-layer] push bounded_transform_enabled=%d "
+                         "bounded_push=%d has_scissor=%d\n",
+                         bounded_transform_layers ? 1 : 0, bound_transformed_push ? 1 : 0,
+                         scissor_ptr ? 1 : 0);
         }
 
-        return rmlui_bgfx::compute_child_layer_bounds(surface, parent_ptr, scissor_ptr,
-                                                      captured_transform_valid);
+        return rmlui_bgfx::compute_child_layer_bounds(
+            surface, parent_ptr, scissor_ptr, captured_transform_valid && !bound_transformed_push);
     }
 
     RenderBounds compute_child_layer_bounds(Rml::LayerHandle parent_handle) const
@@ -679,6 +690,27 @@ struct RenderInterface::Impl {
         return clamp_to_surface(align_outward_for_render_target(content), surface);
     }
 
+    TransformedLayerBoundsPlan
+    plan_transformed_layer_materialization(const LayerRecord& layer,
+                                           bool has_saved_texture_transform_contract,
+                                           std::optional<FbRect> required_bounds) const
+    {
+        return plan_transformed_layer_bounds(TransformedLayerBoundsInputs{
+            bounded_transform_layers,
+            layer.push_transform_valid,
+            layer.content_bounds_transform_fallback,
+            layer.content_bounds_inverse_mask_fallback,
+            has_saved_texture_transform_contract,
+            true,
+            layer.has_valid_content_bounds && !is_empty(layer.valid_content_bounds),
+            required_bounds && !is_empty(*required_bounds),
+            !is_empty(layer_limit_bounds(layer)),
+            layer.push_scissor.enabled && !is_empty(scissor_fb_bounds(layer.push_scissor)),
+            false,
+            false,
+        });
+    }
+
     RenderBounds choose_materialized_layer_bounds(const LayerRecord& layer,
                                                   std::optional<FbRect> required_bounds) const
     {
@@ -698,12 +730,32 @@ struct RenderInterface::Impl {
                                            : union_rects(saved_texture_bounds, *command_bounds);
             }
         }
+        const bool has_saved_texture_transform_contract =
+            !is_empty(saved_texture_bounds) && layer.push_transform_valid;
+        const TransformedLayerBoundsPlan transform_plan = plan_transformed_layer_materialization(
+            layer, has_saved_texture_transform_contract, required_bounds);
+        if (trace_filter_pipeline && layer.push_transform_valid) {
+            std::fprintf(stderr,
+                         "[rmlui-bgfx][transform-layer] materialize "
+                         "bounded_transform_enabled=%d bounded=%d transform_fallback=%s ",
+                         bounded_transform_layers ? 1 : 0, transform_plan.bounded ? 1 : 0,
+                         transform_layer_fallback_reason_name(transform_plan.fallback));
+            const FbRect valid = layer.valid_content_bounds;
+            const FbRect limit = layer_limit_bounds(layer);
+            std::fprintf(stderr, "valid=(%d,%d %dx%d) limit=(%d,%d %dx%d)", valid.x, valid.y,
+                         valid.w, valid.h, limit.x, limit.y, limit.w, limit.h);
+            if (required_bounds) {
+                std::fprintf(stderr, " required=(%d,%d %dx%d)", required_bounds->x,
+                             required_bounds->y, required_bounds->w, required_bounds->h);
+            }
+            std::fprintf(stderr, "\n");
+        }
         if (!is_empty(saved_texture_bounds)) {
             if (layer.push_transform_valid) {
                 // The layer transform is applied after recording. A compact target in untransformed
                 // content coordinates cannot preserve a saved texture's render-space contract.
-                // A future optimization can use transformed callback-quad bounds if it also rebases
-                // every geometry, clip-mask, and composite operation into that target's origin.
+                // Keep this fallback explicit until saved callback quads have a proven bounded
+                // transform mapping.
                 return bounds_from_framebuffer_rect({0, 0, width, height});
             }
             // Preserve the callback quad's complete coordinate space without paying for a
@@ -716,6 +768,12 @@ struct RenderInterface::Impl {
             return bounds_from_framebuffer_rect(saved_texture_bounds);
         }
         FbRect selected = layer_recorded_content_bounds(layer);
+        if (layer.push_transform_valid) {
+            selected =
+                transform_plan.bounded
+                    ? (layer.has_valid_content_bounds ? layer.valid_content_bounds : FbRect{})
+                    : layer_limit_bounds(layer);
+        }
         if (required_bounds && !is_empty(*required_bounds)) {
             const FbRect required =
                 clamp_to_surface(align_outward_for_render_target(*required_bounds), surface);
@@ -1996,6 +2054,7 @@ struct RenderInterface::Impl {
     BlurSampleBoundsMode blur_sample_bounds_mode = BlurSampleBoundsMode::SourceBounds;
     uint8_t reference_msaa_samples = 2;
     bool trace_filter_pipeline = false;
+    bool bounded_transform_layers = false;
 
     // Cached stencil format (probed once to avoid getInternalformatParameter spam).
     mutable bool stencil_cached = false;

@@ -109,6 +109,11 @@ namespace {
     return env_flag_enabled("RMLUI_BGFX_FILTER_TRACE");
 }
 
+[[nodiscard]] bool bounded_transform_layers_from_env()
+{
+    return env_flag_enabled("RMLUI_BGFX_BOUNDED_TRANSFORM_LAYERS");
+}
+
 [[nodiscard]] uint8_t reference_msaa_samples_from_env()
 {
     const char* value = std::getenv("RMLUI_BGFX_REFERENCE_MSAA");
@@ -478,6 +483,7 @@ bool Backend::Initialize(const char* window_name, int width, int height, bool al
     config.blur_sample_bounds_mode = blur_sample_bounds_mode_from_env();
     config.reference_msaa_samples = reference_msaa_samples_from_env();
     config.trace_filter_pipeline = trace_filter_pipeline_from_env();
+    config.bounded_transform_layers = bounded_transform_layers_from_env();
 
     data->render_interface = std::make_unique<rmlui_bgfx::RenderInterface>(config);
     if (!*data->render_interface) {

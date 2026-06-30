@@ -195,6 +195,7 @@ struct RendererConfig {
     BlurSampleBoundsMode blur_sample_bounds_mode = BlurSampleBoundsMode::SourceBounds;
     uint8_t reference_msaa_samples = 2;
     bool trace_filter_pipeline = false;
+    bool bounded_transform_layers = false;
 };
 
 } // namespace rmlui_bgfx
