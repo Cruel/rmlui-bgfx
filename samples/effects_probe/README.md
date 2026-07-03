@@ -58,6 +58,10 @@ Cases:
   bgfx optimized comparison before readback expectations are captured.
 - `32` duplicates the full NovelTea readback gallery document so compounded scene interactions can
   be compared in GL3, bgfx reference, and bgfx optimized without changing the readback harness.
+- `33` copies the full upstream Effects sample and removes only the shader decorator example so
+  the scrolling mask/gradient interaction can be isolated without material-shader noise.
+- `34` duplicates the full effects sample and removes the input slider table so the reproduction
+  can be pared back incrementally from a still-realistic scene.
 
 Suggested workflow:
 

@@ -357,8 +357,13 @@ BgfxLayerSystem::save_layer_as_mask_image(const BgfxLayerSaveMaskContext& ctx)
         !ctx.filter_counter || !ctx.ensure_target || !ctx.composite) {
         return 0;
     }
-    const FbRect mask_global_bounds =
-        clamp_to_surface(align_outward_for_render_target(layer->bounds.framebuffer), ctx.surface);
+    // Match RmlUi's GL3/reference contract: SaveLayerAsMaskImage stores a mask in framebuffer
+    // coordinates, not in the compact mask-layer coordinate system. The optimized copy may still
+    // only populate the overlapping subregion below, but the saved mask resource itself keeps the
+    // full-frame coordinate contract used by the later MaskImage filter.
+    FbRect mask_global_bounds{0, 0, ctx.surface.framebuffer_width, ctx.surface.framebuffer_height};
+    mask_global_bounds =
+        clamp_to_surface(align_outward_for_render_target(mask_global_bounds), ctx.surface);
     if (is_empty(mask_global_bounds)) {
         return 0;
     }
@@ -380,12 +385,17 @@ BgfxLayerSystem::save_layer_as_mask_image(const BgfxLayerSaveMaskContext& ctx)
     if (is_empty(source.global_bounds) || is_empty(source.local_rect)) {
         return 0;
     }
+    const LocalFbRect destination_rect{source.global_bounds.x - mask_global_bounds.x,
+                                       source.global_bounds.y - mask_global_bounds.y,
+                                       source.global_bounds.w, source.global_bounds.h};
+    if (is_empty(destination_rect)) {
+        return 0;
+    }
 
     if (!ctx.composite(make_layer_composite_op(
             source, blend_mask->framebuffer, Rml::BlendMode::Replace, ScissorState{false, {}},
             false, 1, RmlUiPassKind::Copy, RmlUiPassReason::FilterMaskImage,
-            "RmlUi.SaveLayerAsMaskImage",
-            LocalFbRect{0, 0, blend_mask->texture_width, blend_mask->texture_height}))) {
+            "RmlUi.SaveLayerAsMaskImage", destination_rect))) {
         if (ctx.fail_frame) {
             ctx.fail_frame("SaveLayerAsMaskImage failed to copy layer contents");
         }

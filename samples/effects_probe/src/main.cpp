@@ -37,6 +37,15 @@ public:
         std::string full_path = root;
         full_path += '/';
         full_path += normalized;
+        if (normalized.rfind("refs/RmlUi/", 0) == 0) {
+            const std::string marker = "/rmlui-bgfx/";
+            const size_t marker_pos = root.find(marker);
+            if (marker_pos != std::string::npos) {
+                full_path = root.substr(0, marker_pos);
+                full_path += '/';
+                full_path += normalized;
+            }
+        }
 
         FILE* fp = std::fopen(full_path.c_str(), "rb");
         return reinterpret_cast<Rml::FileHandle>(fp);
@@ -68,6 +77,71 @@ struct ProbeCase {
     std::string_view file;
     std::string_view description;
 };
+
+struct EffectsData {
+    bool show_menu = false;
+    Rml::String submenu = "filter";
+
+    struct Filter {
+        float opacity = 1.0f;
+        float sepia = 0.0f;
+        float grayscale = 0.0f;
+        float saturate = 1.0f;
+        float brightness = 1.0f;
+        float contrast = 1.0f;
+        float hue_rotate = 0.0f;
+        float invert = 0.0f;
+        float blur = 0.0f;
+        bool drop_shadow = false;
+    } filter;
+
+    struct Transform {
+        float scale = 1.0f;
+        Rml::Vector3f rotate;
+        float perspective = 3000.0f;
+        Rml::Vector2f perspective_origin = Rml::Vector2f(50.0f);
+        bool transform_all = false;
+    } transform;
+};
+
+void bind_effects_data_model(Rml::Context& context, EffectsData& data)
+{
+    if (Rml::DataModelConstructor constructor = context.CreateDataModel("effects")) {
+        constructor.Bind("show_menu", &data.show_menu);
+        constructor.Bind("submenu", &data.submenu);
+
+        constructor.Bind("opacity", &data.filter.opacity);
+        constructor.Bind("sepia", &data.filter.sepia);
+        constructor.Bind("grayscale", &data.filter.grayscale);
+        constructor.Bind("saturate", &data.filter.saturate);
+        constructor.Bind("brightness", &data.filter.brightness);
+        constructor.Bind("contrast", &data.filter.contrast);
+        constructor.Bind("hue_rotate", &data.filter.hue_rotate);
+        constructor.Bind("invert", &data.filter.invert);
+        constructor.Bind("blur", &data.filter.blur);
+        constructor.Bind("drop_shadow", &data.filter.drop_shadow);
+
+        constructor.Bind("scale", &data.transform.scale);
+        constructor.Bind("rotate_x", &data.transform.rotate.x);
+        constructor.Bind("rotate_y", &data.transform.rotate.y);
+        constructor.Bind("rotate_z", &data.transform.rotate.z);
+        constructor.Bind("perspective", &data.transform.perspective);
+        constructor.Bind("perspective_origin_x", &data.transform.perspective_origin.x);
+        constructor.Bind("perspective_origin_y", &data.transform.perspective_origin.y);
+        constructor.Bind("transform_all", &data.transform.transform_all);
+
+        constructor.BindEventCallback(
+            "reset", [&data](Rml::DataModelHandle handle, Rml::Event& /*event*/,
+                              const Rml::VariantList& /*arguments*/) {
+                if (data.submenu == "transform") {
+                    data.transform = EffectsData::Transform{};
+                } else if (data.submenu == "filter") {
+                    data.filter = EffectsData::Filter{};
+                }
+                handle.DirtyAllVariables();
+            });
+    }
+}
 
 constexpr ProbeCase kCases[] = {
     {"00", "00_shader_time.rml", "u_rmluiMaterialParams0.x elapsed time animation"},
@@ -121,6 +195,10 @@ constexpr ProbeCase kCases[] = {
      "readback-gallery effects stress scene for GL3/reference/optimized comparison"},
     {"32", "32_readback_gallery_duplicate.rml",
      "full NovelTea readback gallery duplicate to reproduce compounded scene interactions"},
+    {"33", "33_effects_full_no_shader.rml",
+     "full upstream effects sample with only the shader decorator example removed"},
+    {"34", "34_single_mask_scroll_isolation.rml",
+     "full effects sample without the input slider table"},
 };
 
 void print_cases(const char* executable)
@@ -185,6 +263,9 @@ int run(int argc, char** argv)
     }
 
     Rml::Debugger::Initialise(context);
+
+    EffectsData effects_data;
+    bind_effects_data_model(*context, effects_data);
 
     Shell::LoadFonts();
     ProbeFileInterface file_interface(RMLUI_BGFX_EFFECTS_PROBE_DATA_DIR);

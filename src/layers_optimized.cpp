@@ -279,14 +279,17 @@ void composite_layers_optimized(BgfxLayerSystem& layer_system, const BgfxLayerCo
     // the actual source pixels for real postprocess chains. No-op filter chains are different:
     // the pipeline will return without running a pass, so preserve the RmlUi layer contract here
     // instead of shrinking the composite to the tracked content bounds.
+    const bool has_non_empty_source_content_bounds =
+        source_layer->has_valid_content_bounds && !is_empty(source_layer->valid_content_bounds);
     FbRect source_valid_global =
-        source_recorded_is_complete && source_layer->has_valid_content_bounds
+        source_recorded_is_complete && has_non_empty_source_content_bounds
             ? intersect(source_layer->valid_content_bounds, source_layer->bounds.framebuffer)
             : source_layer->bounds.framebuffer;
     if (has_filter_contract && has_effective_filters) {
-        source_valid_global = source_layer->has_valid_content_bounds
-                                  ? intersect(source_layer->valid_content_bounds, source_required)
-                                  : source_required;
+        // Match GL3/reference semantics: filters sample the active work rectangle, normally the
+        // current scissor/save bounds. Do not shrink real filter input to tracked ink bounds; blur
+        // and box-shadow callback textures depend on the transparent margins inside the work rect.
+        source_valid_global = source_required;
     } else if (has_filter_contract) {
         source_valid_global = source_required;
     }
