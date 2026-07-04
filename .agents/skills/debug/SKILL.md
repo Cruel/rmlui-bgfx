@@ -76,7 +76,18 @@ git diff --check
 Unit tests when library contracts change:
 
 ```sh
+ninja -C build/linux-debug rmlui_bgfx_tests
 ctest --test-dir build/linux-debug --output-on-failure
+```
+
+`ctest` does not rebuild the test executable. Never report that tests pass after source or test
+changes unless the relevant test target was rebuilt first. To mirror GitHub CI, use the release
+preset path:
+
+```sh
+cmake --preset linux-release
+cmake --build --preset linux-release --target rmlui_bgfx_tests
+ctest --preset linux-release --output-on-failure
 ```
 
 Do not stage files unless explicitly asked.
@@ -158,6 +169,23 @@ RMLUI_BGFX_DEBUG_OVERLAY=1 \
 RMLUI_BGFX_TRACE=effects \
 RMLUI_BGFX_SAMPLE_FPS_LIMIT=5 \
 ../../rmlui-bgfx/build/linux-samples/samples/rmlui_bgfx_sample_effects_probe 33
+```
+
+For NovelTea sandbox/web smoke, the adapter currently enables the renderer trace suite via
+`RMLUI_BGFX_FILTER_TRACE=1` rather than the sample-specific `RMLUI_BGFX_TRACE=...` options. Useful
+readback-gallery profiling commands from the `nt` root:
+
+```sh
+./scripts/run-web-smoke.sh --profile --build-only
+./scripts/run-web-smoke.sh --profile --no-build --min-perf-lines 1
+
+RMLUI_BGFX_FILTER_TRACE=1 \
+build/linux-release/apps/sandbox/noveltea-sandbox \
+  --demo none \
+  --rmlui-document project:/rmlui/readback_gallery.rml \
+  --frames 40 \
+  --render-perf \
+  --no-imgui
 ```
 
 After identifying a good frame and bad frame, rerun tightly:
@@ -277,10 +305,53 @@ Pass/target contracts:
   bad frames, inspect `BeginFrameTargetGC` and `AcquirePostprocessTarget` for per-frame
   destroy/recreate churn. Bounded postprocess targets should be retained for a short idle window
   instead of being destroyed immediately on the next frame.
+- The bounded postprocess retention window is intentionally small: keep a frame target through one
+  idle frame so recurring blur/shadow/mask work can reuse it on the next frame, then GC it if it
+  does not reappear. Do not replace this with immediate frame-boundary destruction unless smoke and
+  visual probes prove there is no `rt_alloc`/`rt_destroy` churn or backend flicker.
+- When testing target-cache lifetimes, assert target semantics, not only raw counts. For example,
+  after one frame boundary it may be correct to have one `Viewport` `Primary` target plus one
+  bounded `Frame` `Secondary` target. The test should also prove the bounded frame target is
+  eventually collected after the idle window.
 - Also inspect `EnsureLayerTarget` for per-frame layer target churn. When virtual child layer
   records are reset for a new frame, all target identity metadata must be preserved with the handles:
   generation, formats, MSAA state, and dimensions. Preserving only framebuffer/texture handles is
   not enough; reuse checks will fail and the target will be destroyed/reallocated every frame.
+
+Important recent renderer lessons:
+
+- Probe `31` (`trail opacity(1)`) can disappear when a destination layer is first materialized to a
+  compact child-output rect and later rematerialized for a slightly different parent/wrapper
+  required rect. If the materialized layer has no recorded commands but contains child-composited
+  pixels, resizing/clearing it will erase those pixels. Treat this as a transparent-margin reuse
+  case when required bounds overlap the valid content, rather than replaying an empty command list
+  into a new cleared target.
+- Destination-bound narrowing is only safe if it does not discard already-composited destination
+  content. When a destination layer is recording, materialized, or has commands/content, union the
+  new output with the existing destination bounds; only use the new output bounds alone for an empty
+  destination contract.
+- Transformed saved-texture layers should use explicit `required_bounds` when the compositor/filter
+  provides them. A transformed saved texture does not automatically require a full-frame target; the
+  full-frame fallback should be reserved for callers with no explicit render-space window.
+- Root stencil clears from `ClipMaskOperation::Set` can dominate `full_frame_clear_passes` even when
+  all child/postprocess targets are bounded. For non-inverse `Set` with known mask geometry and no
+  explicit scissor, clear the stencil over the new mask bounds plus any previous conservative
+  non-inverse mask bounds. Keep `SetInverse` broad unless an inverse fallback container is proven,
+  because the outside region must be initialized.
+- A passing smoke test proves thresholds, not full visual correctness. For changes touching
+  materialization, saved textures, masks, or stencil clears, manually recheck probes `31`, `32`, and
+  `33` and ask the user to confirm the visual result before declaring a renderer fix complete.
+
+Useful readback-gallery smoke targets after recent optimization work:
+
+- `full_frame_child_layers` should stay `0`.
+- `full_frame_passes` should stay at the root/base minimum, currently `2`.
+- `full_frame_clear_passes` should stay at the base clear minimum, currently `1`.
+- `full_frame_postprocess_target_uses` should stay `0`.
+- `rt_alloc`, `rt_destroy`, `layer_alloc`, and `layer_destroy` should stay `0` during the profiled
+  steady-state web smoke run.
+- `max_child_rt` and `max_rt` should stay bounded to the largest filter work area, not the full
+  framebuffer.
 
 ## Editing discipline
 
