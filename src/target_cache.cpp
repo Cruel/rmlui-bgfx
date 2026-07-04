@@ -1,13 +1,18 @@
 #include "rmlui_bgfx_target_cache.hpp"
 
+#include "rmlui_bgfx_trace.hpp"
+
 #include <bx/math.h>
 
 #include <array>
 #include <cstdio>
+#include <string>
 
 namespace rmlui_bgfx {
 
 namespace {
+
+constexpr uint64_t kDeferredTargetDestroyFrames = 4;
 
 bool is_full_frame_rect(FbRect rect, int width, int height)
 {
@@ -28,6 +33,23 @@ const char* texture_format_name(bgfx::TextureFormat::Enum format)
     default:
         return "Other";
     }
+}
+
+void trace_target_descriptor(RenderTraceLine& line, const TargetDescriptor& desc)
+{
+    line.field("role", target_role_name(desc.role));
+    line.field("kind", desc.role == TargetRole::Postprocess
+                           ? postprocess_target_kind_name(desc.postprocess_kind)
+                           : "n/a");
+    line.field("lifetime", target_lifetime_name(desc.lifetime));
+    line.fb_rect("bounds", desc.bounds);
+    line.field("size", std::to_string(desc.texture_width) + "x" +
+                           std::to_string(desc.texture_height));
+    line.field("color", texture_format_name(desc.color_format));
+    line.field("depth", texture_format_name(desc.depth_stencil_format));
+    line.field("msaa", unsigned(desc.msaa_samples));
+    line.field("label", desc.debug_label ? desc.debug_label : "n/a");
+    line.field("desc_reason", desc.reason ? desc.reason : "n/a");
 }
 
 } // namespace
@@ -113,6 +135,8 @@ BgfxTargetCache::~BgfxTargetCache()
 
 void BgfxTargetCache::set_perf_counters(PerfCounters* perf) { m_perf = perf; }
 
+void BgfxTargetCache::set_trace(RenderTrace* trace) { m_trace = trace; }
+
 void BgfxTargetCache::begin_frame()
 {
     ++m_frame_generation;
@@ -121,20 +145,56 @@ void BgfxTargetCache::begin_frame()
     }
 
     // GL3 keeps fixed-role postprocess targets viewport-scoped. The optimized path preserves that
-    // for full-frame role targets while keeping bounded targets frame-scoped so scrolling through
-    // many slightly different filter bounds cannot grow memory across frames.
+    // for full-frame role targets while keeping bounded targets eligible for short idle GC so
+    // scrolling through many slightly different filter bounds cannot grow memory without bound.
+    // Do not destroy bounded targets immediately on the next frame: bgfx backends may still have
+    // queued work referencing those handles, and rapid destroy/recreate churn can produce
+    // frame-rate-dependent flicker on slower/virtualized renderers.
     for (auto it = m_postprocess_targets.begin(); it != m_postprocess_targets.end();) {
-        if (it->lifetime == TargetLifetime::Frame || !bgfx::isValid(it->framebuffer) ||
-            !bgfx::isValid(it->color)) {
+        const bool invalid_target = !bgfx::isValid(it->framebuffer) || !bgfx::isValid(it->color);
+        const uint64_t idle_frames =
+            m_frame_generation >= it->last_used_frame ? m_frame_generation - it->last_used_frame : 0;
+        const bool expired_frame_target =
+            it->lifetime == TargetLifetime::Frame &&
+            idle_frames > kDeferredTargetDestroyFrames;
+        if (invalid_target || expired_frame_target) {
+            RMLUI_BGFX_TRACE(m_trace, TraceCategory::Target, "destroy", "BeginFrameTargetGC", {
+                line.field("kind", postprocess_target_kind_name(it->kind));
+                line.field("lifetime", target_lifetime_name(it->lifetime));
+                line.fb_rect("bounds", it->bounds);
+                line.handle("fb", it->framebuffer);
+                line.handle("tex", it->color);
+                line.field("generation", it->generation);
+                line.field("idle_frames", idle_frames);
+            });
             destroy_render_target(*it);
             it = m_postprocess_targets.erase(it);
         } else {
             ++it;
         }
     }
+    for (auto it = m_retired_layer_targets.begin(); it != m_retired_layer_targets.end();) {
+        const bool invalid_target = !bgfx::isValid(it->framebuffer);
+        const uint64_t idle_frames =
+            m_frame_generation >= it->retired_frame ? m_frame_generation - it->retired_frame : 0;
+        if (invalid_target || idle_frames > kDeferredTargetDestroyFrames) {
+            RMLUI_BGFX_TRACE(m_trace, TraceCategory::Target, "destroy", "RetiredLayerTargetGC", {
+                line.handle("fb", it->framebuffer);
+                line.handle("tex", it->color);
+                line.handle("depth", it->depth_stencil);
+                line.fb_rect("bounds", it->bounds.framebuffer);
+                line.field("generation", it->generation);
+                line.field("idle_frames", idle_frames);
+            });
+            destroy_retired_layer_target(*it);
+            it = m_retired_layer_targets.erase(it);
+        } else {
+            ++it;
+        }
+    }
     m_postprocess_pool.reset_resources();
     for (const RenderTargetRecord& target : m_postprocess_targets) {
-        if (target.lifetime == TargetLifetime::Viewport && bgfx::isValid(target.framebuffer)) {
+        if (bgfx::isValid(target.framebuffer)) {
             m_postprocess_pool.mark_allocated(target.kind);
         }
     }
@@ -167,6 +227,14 @@ const LayerRecord* BgfxTargetCache::layer(uint32_t slot) const
 void BgfxTargetCache::destroy_layer(LayerRecord& layer)
 {
     if (bgfx::isValid(layer.framebuffer)) {
+        RMLUI_BGFX_TRACE(m_trace, TraceCategory::Target, "destroy", "DestroyLayerTarget", {
+            line.handle("fb", layer.framebuffer);
+            line.handle("tex", layer.color);
+            line.fb_rect("bounds", layer.bounds.framebuffer);
+            line.field("generation", layer.target_generation);
+            line.field("size", std::to_string(layer.texture_width) + "x" +
+                                   std::to_string(layer.texture_height));
+        });
         bgfx::destroy(layer.framebuffer);
         if (m_perf) {
             m_perf->add_layer_destroy();
@@ -175,9 +243,67 @@ void BgfxTargetCache::destroy_layer(LayerRecord& layer)
     layer = {};
 }
 
+void BgfxTargetCache::retire_layer_target(LayerRecord& layer)
+{
+    if (bgfx::isValid(layer.framebuffer)) {
+        RMLUI_BGFX_TRACE(m_trace, TraceCategory::Target, "retire", "RetireLayerTarget", {
+            line.handle("fb", layer.framebuffer);
+            line.handle("tex", layer.color);
+            line.handle("depth", layer.depth_stencil);
+            line.fb_rect("bounds", layer.bounds.framebuffer);
+            line.field("generation", layer.target_generation);
+            line.field("size", std::to_string(layer.texture_width) + "x" +
+                                   std::to_string(layer.texture_height));
+        });
+        m_retired_layer_targets.push_back({layer.framebuffer,
+                                           layer.color,
+                                           layer.depth_stencil,
+                                           layer.bounds,
+                                           layer.texture_width,
+                                           layer.texture_height,
+                                           layer.target_generation,
+                                           m_frame_generation});
+    }
+    layer.framebuffer = BGFX_INVALID_HANDLE;
+    layer.color = BGFX_INVALID_HANDLE;
+    layer.depth_stencil = BGFX_INVALID_HANDLE;
+    layer.target_generation = 0;
+    layer.texture_width = 0;
+    layer.texture_height = 0;
+    layer.msaa_enabled = false;
+}
+
+void BgfxTargetCache::destroy_retired_layer_target(RetiredLayerTarget& target)
+{
+    if (bgfx::isValid(target.framebuffer)) {
+        bgfx::destroy(target.framebuffer);
+        if (m_perf) {
+            m_perf->add_layer_destroy();
+        }
+    }
+    target = {};
+}
+
+void BgfxTargetCache::destroy_retired_layer_targets()
+{
+    for (RetiredLayerTarget& target : m_retired_layer_targets) {
+        destroy_retired_layer_target(target);
+    }
+    m_retired_layer_targets.clear();
+}
+
 void BgfxTargetCache::destroy_render_target(RenderTargetRecord& target)
 {
     if (bgfx::isValid(target.framebuffer)) {
+        RMLUI_BGFX_TRACE(m_trace, TraceCategory::Target, "destroy", "DestroyPostprocessTarget", {
+            line.field("kind", postprocess_target_kind_name(target.kind));
+            line.field("lifetime", target_lifetime_name(target.lifetime));
+            line.handle("fb", target.framebuffer);
+            line.handle("tex", target.color);
+            line.fb_rect("bounds", target.bounds);
+            line.field("generation", target.generation);
+            line.field("full_frame", target.full_frame);
+        });
         bgfx::destroy(target.framebuffer);
         if (m_perf) {
             m_perf->add_pp_destroy();
@@ -192,6 +318,7 @@ void BgfxTargetCache::destroy_layers()
         destroy_layer(layer_record);
     }
     m_layers.clear();
+    destroy_retired_layer_targets();
     m_layer_pool.reset_resources();
 }
 
@@ -240,6 +367,10 @@ bool BgfxTargetCache::ensure_layer_target(uint32_t slot, const RenderBounds& bou
     const TargetDescriptor descriptor =
         make_layer_target_descriptor(bounds, stencil_format, requested_msaa, msaa_samples);
     LayerRecord& layer_record = prepare_virtual_layer_slot(slot);
+    RMLUI_BGFX_TRACE(m_trace, TraceCategory::Target, "plan", "EnsureLayerTarget", {
+        line.field("slot", slot);
+        trace_target_descriptor(line, descriptor);
+    });
     if (m_perf) {
         m_perf->update_layer_max(uint32_t(bounds.framebuffer.w), uint32_t(bounds.framebuffer.h));
     }
@@ -253,6 +384,13 @@ bool BgfxTargetCache::ensure_layer_target(uint32_t slot, const RenderBounds& bou
         bx::mtxOrtho(layer_record.projection, bounds.logical.x, bounds.logical.x + bounds.logical.w,
                      bounds.logical.y + bounds.logical.h, bounds.logical.y, -10000.0f, 10000.0f,
                      0.0f, bgfx::getCaps()->homogeneousDepth);
+        RMLUI_BGFX_TRACE(m_trace, TraceCategory::Target, "reuse", "EnsureLayerTarget", {
+            line.field("slot", slot);
+            line.handle("fb", layer_record.framebuffer);
+            line.handle("tex", layer_record.color);
+            line.fb_rect("bounds", layer_record.bounds.framebuffer);
+            line.field("generation", layer_record.target_generation);
+        });
         return true;
     }
 
@@ -275,13 +413,17 @@ bool BgfxTargetCache::ensure_layer_target(uint32_t slot, const RenderBounds& bou
     const size_t saved_inherited_clip_command_count = layer_record.inherited_clip_command_count;
     std::vector<size_t> saved_clip_commands = std::move(layer_record.clip_commands);
     std::vector<RecordedDrawCommand> saved_commands = std::move(layer_record.commands);
-    destroy_layer(layer_record);
+    retire_layer_target(layer_record);
 
     const uint64_t color_flags =
         requested_msaa ? msaa_color_flags
                        : (BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
     const uint64_t depth_flags = requested_msaa ? msaa_depth_flags : BGFX_TEXTURE_RT_WRITE_ONLY;
     if (stencil_format == bgfx::TextureFormat::Unknown) {
+        RMLUI_BGFX_TRACE_FAILURE(m_trace, "EnsureLayerTarget", "stencil format", {
+            line.field("slot", slot);
+            trace_target_descriptor(line, descriptor);
+        });
         log_target_allocation_failure(descriptor, "stencil format");
         return false;
     }
@@ -300,6 +442,13 @@ bool BgfxTargetCache::ensure_layer_target(uint32_t slot, const RenderBounds& bou
         if (bgfx::isValid(depth)) {
             bgfx::destroy(depth);
         }
+        RMLUI_BGFX_TRACE_FAILURE(m_trace, "EnsureLayerTarget",
+                                 !bgfx::isValid(color) ? "color texture"
+                                                       : "depth-stencil texture",
+                                 {
+                                     line.field("slot", slot);
+                                     trace_target_descriptor(line, descriptor);
+                                 });
         log_target_allocation_failure(descriptor, !bgfx::isValid(color) ? "color texture"
                                                                         : "depth-stencil texture");
         return false;
@@ -311,6 +460,10 @@ bool BgfxTargetCache::ensure_layer_target(uint32_t slot, const RenderBounds& bou
     if (!bgfx::isValid(framebuffer)) {
         bgfx::destroy(color);
         bgfx::destroy(depth);
+        RMLUI_BGFX_TRACE_FAILURE(m_trace, "EnsureLayerTarget", "framebuffer", {
+            line.field("slot", slot);
+            trace_target_descriptor(line, descriptor);
+        });
         log_target_allocation_failure(descriptor, "framebuffer");
         return false;
     }
@@ -351,6 +504,15 @@ bool BgfxTargetCache::ensure_layer_target(uint32_t slot, const RenderBounds& bou
     if (m_perf) {
         m_perf->add_layer_alloc(uint32_t(bounds.framebuffer.w), uint32_t(bounds.framebuffer.h));
     }
+    RMLUI_BGFX_TRACE(m_trace, TraceCategory::Target, "allocate", "EnsureLayerTarget", {
+        line.field("slot", slot);
+        line.handle("fb", layer_record.framebuffer);
+        line.handle("tex", layer_record.color);
+        line.handle("depth", layer_record.depth_stencil);
+        line.fb_rect("bounds", layer_record.bounds.framebuffer);
+        line.field("generation", layer_record.target_generation);
+        line.field("msaa", layer_record.msaa_enabled);
+    });
     return true;
 }
 
@@ -366,6 +528,9 @@ RenderTargetRecord* BgfxTargetCache::acquire_postprocess_target(PostprocessTarge
         return nullptr;
     }
     const TargetDescriptor descriptor = make_postprocess_target_descriptor(kind, clamped_bounds, surface);
+    RMLUI_BGFX_TRACE(m_trace, TraceCategory::Target, "plan", "AcquirePostprocessTarget", {
+        trace_target_descriptor(line, descriptor);
+    });
     const int work_w = descriptor.texture_width;
     const int work_h = descriptor.texture_height;
     const bool target_is_full_frame =
@@ -384,6 +549,16 @@ RenderTargetRecord* BgfxTargetCache::acquire_postprocess_target(PostprocessTarge
               target.surface_height == surface.framebuffer_height))) {
             target.bounds = descriptor.bounds;
             target.last_used_frame = m_frame_generation;
+            RMLUI_BGFX_TRACE(m_trace, TraceCategory::Target, "reuse",
+                             "AcquirePostprocessTarget", {
+                                 line.field("kind", postprocess_target_kind_name(target.kind));
+                                 line.field("lifetime", target_lifetime_name(target.lifetime));
+                                 line.handle("fb", target.framebuffer);
+                                 line.handle("tex", target.color);
+                                 line.fb_rect("bounds", target.bounds);
+                                 line.field("generation", target.generation);
+                                 line.field("full_frame", target.full_frame);
+                             });
             return &target;
         }
     }
@@ -395,12 +570,18 @@ RenderTargetRecord* BgfxTargetCache::acquire_postprocess_target(PostprocessTarge
     bgfx::TextureHandle color = bgfx::createTexture2D(uint16_t(work_w), uint16_t(work_h), false, 1,
                                                       descriptor.color_format, flags);
     if (!bgfx::isValid(color)) {
+        RMLUI_BGFX_TRACE_FAILURE(m_trace, "AcquirePostprocessTarget", "color texture", {
+            trace_target_descriptor(line, descriptor);
+        });
         log_target_allocation_failure(descriptor, "color texture");
         return nullptr;
     }
     bgfx::FrameBufferHandle framebuffer = bgfx::createFrameBuffer(1, &color, true);
     if (!bgfx::isValid(framebuffer)) {
         bgfx::destroy(color);
+        RMLUI_BGFX_TRACE_FAILURE(m_trace, "AcquirePostprocessTarget", "framebuffer", {
+            trace_target_descriptor(line, descriptor);
+        });
         log_target_allocation_failure(descriptor, "framebuffer");
         return nullptr;
     }
@@ -429,6 +610,15 @@ RenderTargetRecord* BgfxTargetCache::acquire_postprocess_target(PostprocessTarge
             m_perf->add_bounded_pp_target();
         }
     }
+    RMLUI_BGFX_TRACE(m_trace, TraceCategory::Target, "allocate", "AcquirePostprocessTarget", {
+        line.field("kind", postprocess_target_kind_name(target.kind));
+        line.field("lifetime", target_lifetime_name(target.lifetime));
+        line.handle("fb", target.framebuffer);
+        line.handle("tex", target.color);
+        line.fb_rect("bounds", target.bounds);
+        line.field("generation", target.generation);
+        line.field("full_frame", target.full_frame);
+    });
     return &target;
 }
 

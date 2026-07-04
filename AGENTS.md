@@ -106,6 +106,10 @@ The current probe cases are document-level slices of the full upstream effects s
 
 ## Diagnostics policy
 
+For renderer debugging, read `skills/debug/SKILL.md` before changing behavior. It describes the
+current trace workflow, FPS throttling, probe comparison process, and contracts to verify when
+tracking optimized renderer defects. Keep that skill updated as better approaches are discovered.
+
 Diagnostics should be useful and event-level, not frame-spam. Avoid per-geometry logs by default.
 
 Reference diagnostics should focus on:

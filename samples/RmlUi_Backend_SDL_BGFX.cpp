@@ -22,10 +22,13 @@
 #include <stb_image.h>
 
 #include <algorithm>
+#include <charconv>
+#include <cctype>
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <limits>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -104,6 +107,179 @@ namespace {
                      value[0] == 'Y' || value[0] == 'o' || value[0] == 'O');
 }
 
+[[nodiscard]] bool string_equals_ignore_case(std::string_view a, std::string_view b)
+{
+    if (a.size() != b.size())
+        return false;
+    for (size_t i = 0; i < a.size(); ++i) {
+        if (std::tolower(static_cast<unsigned char>(a[i])) !=
+            std::tolower(static_cast<unsigned char>(b[i]))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] uint64_t trace_category_token(std::string_view token)
+{
+    using rmlui_bgfx::TraceCategory;
+    while (!token.empty() && std::isspace(static_cast<unsigned char>(token.front())))
+        token.remove_prefix(1);
+    while (!token.empty() && std::isspace(static_cast<unsigned char>(token.back())))
+        token.remove_suffix(1);
+    if (string_equals_ignore_case(token, "all"))
+        return std::numeric_limits<uint64_t>::max();
+    if (string_equals_ignore_case(token, "effects"))
+        return rmlui_bgfx::trace_category_bit(TraceCategory::Layer) |
+               rmlui_bgfx::trace_category_bit(TraceCategory::Filter) |
+               rmlui_bgfx::trace_category_bit(TraceCategory::Mask) |
+               rmlui_bgfx::trace_category_bit(TraceCategory::Texture) |
+               rmlui_bgfx::trace_category_bit(TraceCategory::Copy) |
+               rmlui_bgfx::trace_category_bit(TraceCategory::Composite) |
+               rmlui_bgfx::trace_category_bit(TraceCategory::Failure) |
+               rmlui_bgfx::trace_category_bit(TraceCategory::Fallback);
+    if (string_equals_ignore_case(token, "scroll"))
+        return rmlui_bgfx::trace_category_bit(TraceCategory::Frame) |
+               rmlui_bgfx::trace_category_bit(TraceCategory::Surface) |
+               rmlui_bgfx::trace_category_bit(TraceCategory::Layer) |
+               rmlui_bgfx::trace_category_bit(TraceCategory::Clip) |
+               rmlui_bgfx::trace_category_bit(TraceCategory::Stencil) |
+               rmlui_bgfx::trace_category_bit(TraceCategory::Filter) |
+               rmlui_bgfx::trace_category_bit(TraceCategory::Composite) |
+               rmlui_bgfx::trace_category_bit(TraceCategory::Failure);
+    if (string_equals_ignore_case(token, "targets"))
+        return rmlui_bgfx::trace_category_bit(TraceCategory::Pass) |
+               rmlui_bgfx::trace_category_bit(TraceCategory::Target) |
+               rmlui_bgfx::trace_category_bit(TraceCategory::Copy) |
+               rmlui_bgfx::trace_category_bit(TraceCategory::Composite) |
+               rmlui_bgfx::trace_category_bit(TraceCategory::Failure);
+    if (string_equals_ignore_case(token, "saved"))
+        return rmlui_bgfx::trace_category_bit(TraceCategory::Texture) |
+               rmlui_bgfx::trace_category_bit(TraceCategory::Mask) |
+               rmlui_bgfx::trace_category_bit(TraceCategory::Filter) |
+               rmlui_bgfx::trace_category_bit(TraceCategory::Copy) |
+               rmlui_bgfx::trace_category_bit(TraceCategory::Composite) |
+               rmlui_bgfx::trace_category_bit(TraceCategory::Failure);
+    struct NamedCategory {
+        std::string_view name;
+        TraceCategory category;
+    };
+    static constexpr NamedCategory categories[] = {
+        {"frame", TraceCategory::Frame},     {"surface", TraceCategory::Surface},
+        {"pass", TraceCategory::Pass},       {"target", TraceCategory::Target},
+        {"layer", TraceCategory::Layer},     {"record", TraceCategory::Record},
+        {"replay", TraceCategory::Replay},   {"draw", TraceCategory::Draw},
+        {"clip", TraceCategory::Clip},       {"stencil", TraceCategory::Stencil},
+        {"filter", TraceCategory::Filter},   {"mask", TraceCategory::Mask},
+        {"texture", TraceCategory::Texture}, {"copy", TraceCategory::Copy},
+        {"composite", TraceCategory::Composite},
+        {"shader", TraceCategory::Shader},
+        {"fallback", TraceCategory::Fallback},
+        {"failure", TraceCategory::Failure}, {"perf", TraceCategory::Perf},
+    };
+    for (const NamedCategory& category : categories) {
+        if (string_equals_ignore_case(token, category.name))
+            return rmlui_bgfx::trace_category_bit(category.category);
+    }
+    return 0;
+}
+
+[[nodiscard]] bool parse_u64_env(std::string_view value, uint64_t& out)
+{
+    while (!value.empty() && std::isspace(static_cast<unsigned char>(value.front())))
+        value.remove_prefix(1);
+    while (!value.empty() && std::isspace(static_cast<unsigned char>(value.back())))
+        value.remove_suffix(1);
+    if (value.empty())
+        return false;
+    const char* begin = value.data();
+    const char* end = value.data() + value.size();
+    uint64_t parsed = 0;
+    const auto result = std::from_chars(begin, end, parsed);
+    if (result.ec != std::errc{} || result.ptr != end)
+        return false;
+    out = parsed;
+    return true;
+}
+
+[[nodiscard]] uint64_t trace_categories_from_env()
+{
+    const char* value = std::getenv("RMLUI_BGFX_TRACE");
+    if (!value || value[0] == '\0')
+        return 0;
+    uint64_t mask = 0;
+    std::string_view remaining(value);
+    while (!remaining.empty()) {
+        const size_t comma = remaining.find(',');
+        const std::string_view token =
+            comma == std::string_view::npos ? remaining : remaining.substr(0, comma);
+        mask |= trace_category_token(token);
+        if (comma == std::string_view::npos)
+            break;
+        remaining.remove_prefix(comma + 1);
+    }
+    return mask;
+}
+
+[[nodiscard]] rmlui_bgfx::TraceOptions trace_options_from_env()
+{
+    rmlui_bgfx::TraceOptions options;
+    options.categories = trace_categories_from_env();
+    if (const char* frame = std::getenv("RMLUI_BGFX_TRACE_FRAME")) {
+        const std::string_view value(frame);
+        const size_t dash = value.find('-');
+        uint64_t begin = 0;
+        uint64_t end = 0;
+        if (dash == std::string_view::npos) {
+            if (parse_u64_env(value, begin)) {
+                options.frame_begin = begin;
+                options.frame_end = begin;
+            }
+        } else if (parse_u64_env(value.substr(0, dash), begin) &&
+                   parse_u64_env(value.substr(dash + 1), end)) {
+            options.frame_begin = std::min(begin, end);
+            options.frame_end = std::max(begin, end);
+        }
+    }
+    if (const char* every = std::getenv("RMLUI_BGFX_TRACE_EVERY")) {
+        uint64_t parsed = 0;
+        if (parse_u64_env(every, parsed) && parsed > 0)
+            options.every_n_frames = uint32_t(std::min<uint64_t>(parsed, 1000000));
+    }
+    if (const char* first = std::getenv("RMLUI_BGFX_TRACE_FIRST")) {
+        uint64_t parsed = 0;
+        if (parse_u64_env(first, parsed))
+            options.first_n_frames = uint32_t(std::min<uint64_t>(parsed, 1000000));
+    }
+    if (const char* ring = std::getenv("RMLUI_BGFX_TRACE_RING")) {
+        uint64_t parsed = 0;
+        if (parse_u64_env(ring, parsed))
+            options.ring_line_count = size_t(std::min<uint64_t>(parsed, 100000));
+    }
+    if (const char* op = std::getenv("RMLUI_BGFX_TRACE_OP"))
+        options.operation_filter = op;
+    if (const char* reason = std::getenv("RMLUI_BGFX_TRACE_REASON"))
+        options.reason_filter = reason;
+    options.include_reused_passes = env_flag_enabled("RMLUI_BGFX_TRACE_REUSED_PASSES");
+    options.include_skips = !std::getenv("RMLUI_BGFX_TRACE_SKIPS") ||
+                            env_flag_enabled("RMLUI_BGFX_TRACE_SKIPS");
+    options.flush_on_failure = !std::getenv("RMLUI_BGFX_TRACE_ON_FAILURE") ||
+                               env_flag_enabled("RMLUI_BGFX_TRACE_ON_FAILURE");
+    return options;
+}
+
+[[nodiscard]] double fps_limit_from_env()
+{
+    const char* value = std::getenv("RMLUI_BGFX_SAMPLE_FPS_LIMIT");
+    if (!value || value[0] == '\0')
+        return 0.0;
+    char* end = nullptr;
+    const double parsed = std::strtod(value, &end);
+    if (end == value || parsed < 0.1 || parsed > 1000.0)
+        return 0.0;
+    return parsed;
+}
+
 [[nodiscard]] bool trace_filter_pipeline_from_env()
 {
     return env_flag_enabled("RMLUI_BGFX_FILTER_TRACE");
@@ -111,7 +287,15 @@ namespace {
 
 [[nodiscard]] bool bounded_transform_layers_from_env()
 {
+    if (!std::getenv("RMLUI_BGFX_BOUNDED_TRANSFORM_LAYERS")) {
+        return true;
+    }
     return env_flag_enabled("RMLUI_BGFX_BOUNDED_TRANSFORM_LAYERS");
+}
+
+[[nodiscard]] bool debug_overlay_from_env()
+{
+    return env_flag_enabled("RMLUI_BGFX_DEBUG_OVERLAY");
 }
 
 [[nodiscard]] uint8_t reference_msaa_samples_from_env()
@@ -368,6 +552,12 @@ struct BackendData {
     SDL_Window* window = nullptr;
     bool running = true;
     bool bgfx_initialized = false;
+    double fps_limit = 0.0;
+    std::uint64_t last_present_ns = 0;
+    bool debug_overlay = false;
+    double debug_overlay_fps = 0.0;
+    std::uint64_t debug_overlay_window_start_ns = 0;
+    std::uint64_t debug_overlay_window_frames = 0;
     Rml::Vector2f mouse_position = Rml::Vector2f(-1.0f, -1.0f);
     bool mouse_position_valid = false;
 };
@@ -382,6 +572,32 @@ void resize_backend(SDL_Window* window)
     bgfx::reset(static_cast<std::uint32_t>(surface.framebuffer_width),
                 static_cast<std::uint32_t>(surface.framebuffer_height), BGFX_RESET_VSYNC);
     data->render_interface->resize(surface);
+}
+
+void update_debug_overlay()
+{
+    if (!data || !data->render_interface || !data->debug_overlay) {
+        return;
+    }
+
+    const std::uint64_t now = SDL_GetTicksNS();
+    if (data->debug_overlay_window_start_ns == 0) {
+        data->debug_overlay_window_start_ns = now;
+    }
+    ++data->debug_overlay_window_frames;
+    const std::uint64_t elapsed_ns = now - data->debug_overlay_window_start_ns;
+    if (elapsed_ns >= 250000000ull) {
+        const double elapsed_seconds = double(elapsed_ns) / 1000000000.0;
+        data->debug_overlay_fps = double(data->debug_overlay_window_frames) / elapsed_seconds;
+        data->debug_overlay_window_frames = 0;
+        data->debug_overlay_window_start_ns = now;
+    }
+
+    bgfx::dbgTextClear();
+    bgfx::dbgTextPrintf(0, 0, 0x0f, "rmlui-bgfx frame=%llu fps=%.1f limit=%.1f",
+                        static_cast<unsigned long long>(data->render_interface->frame_index()),
+                        data->debug_overlay_fps, data->fps_limit);
+    bgfx::dbgTextPrintf(0, 1, 0x0f, "debug overlay: RMLUI_BGFX_DEBUG_OVERLAY=1");
 }
 
 } // namespace
@@ -433,7 +649,9 @@ bool Backend::Initialize(const char* window_name, int width, int height, bool al
 
     const rmlui_bgfx::SurfaceMetrics surface = query_surface(window);
 
-    static SampleBgfxCallback bgfx_callback(env_flag_enabled("RMLUI_BGFX_BGFX_DEBUG"));
+    const bool bgfx_debug_enabled = env_flag_enabled("RMLUI_BGFX_BGFX_DEBUG");
+    const bool debug_overlay_enabled = debug_overlay_from_env();
+    static SampleBgfxCallback bgfx_callback(bgfx_debug_enabled);
 
     bgfx::Init init;
     init.type = bgfx::RendererType::OpenGL;
@@ -442,7 +660,7 @@ bool Backend::Initialize(const char* window_name, int width, int height, bool al
     init.resolution.width = static_cast<std::uint32_t>(surface.framebuffer_width);
     init.resolution.height = static_cast<std::uint32_t>(surface.framebuffer_height);
     init.resolution.reset = BGFX_RESET_VSYNC;
-    init.debug = env_flag_enabled("RMLUI_BGFX_BGFX_DEBUG");
+    init.debug = bgfx_debug_enabled;
 
     if (!bgfx::init(init)) {
         Rml::Log::Message(Rml::Log::LT_ERROR, "bgfx::init failed");
@@ -451,10 +669,12 @@ bool Backend::Initialize(const char* window_name, int width, int height, bool al
         return false;
     }
 
-    bgfx::setDebug(env_flag_enabled("RMLUI_BGFX_BGFX_DEBUG") ? BGFX_DEBUG_TEXT : BGFX_DEBUG_NONE);
+    bgfx::setDebug((bgfx_debug_enabled || debug_overlay_enabled) ? BGFX_DEBUG_TEXT
+                                                                 : BGFX_DEBUG_NONE);
 
     data = Rml::MakeUnique<BackendData>(window);
     data->bgfx_initialized = true;
+    data->debug_overlay = debug_overlay_enabled;
 
     rmlui_bgfx::PrecompiledMaterialShaderProviderConfig material_config;
     material_config.root_directory = RMLUI_BGFX_SAMPLE_SHADER_DIR;
@@ -483,7 +703,9 @@ bool Backend::Initialize(const char* window_name, int width, int height, bool al
     config.blur_sample_bounds_mode = blur_sample_bounds_mode_from_env();
     config.reference_msaa_samples = reference_msaa_samples_from_env();
     config.trace_filter_pipeline = trace_filter_pipeline_from_env();
+    config.trace_options = trace_options_from_env();
     config.bounded_transform_layers = bounded_transform_layers_from_env();
+    data->fps_limit = fps_limit_from_env();
 
     data->render_interface = std::make_unique<rmlui_bgfx::RenderInterface>(config);
     if (!*data->render_interface) {
@@ -616,6 +838,19 @@ void Backend::PresentFrame()
 {
     RMLUI_ASSERT(data && data->render_interface);
     data->render_interface->end_frame();
+    update_debug_overlay();
     bgfx::frame();
+    if (data->fps_limit > 0.0) {
+        const std::uint64_t now = SDL_GetTicksNS();
+        const std::uint64_t frame_period =
+            static_cast<std::uint64_t>(1000000000.0 / data->fps_limit);
+        if (data->last_present_ns != 0 && now > data->last_present_ns) {
+            const std::uint64_t elapsed = now - data->last_present_ns;
+            if (elapsed < frame_period) {
+                SDL_DelayNS(frame_period - elapsed);
+            }
+        }
+        data->last_present_ns = SDL_GetTicksNS();
+    }
     RMLUI_FrameMark;
 }

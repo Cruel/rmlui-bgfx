@@ -10,11 +10,14 @@
 
 namespace rmlui_bgfx {
 
+class RenderTrace;
+
 class BgfxPassBuilder {
 public:
     BgfxPassBuilder(RmlUiViewId begin, RmlUiViewId end, PerfCounters* perf = nullptr);
 
     void set_perf_counters(PerfCounters* perf);
+    void set_trace(RenderTrace* trace);
     void begin_frame(int framebuffer_width, int framebuffer_height);
 
     [[nodiscard]] std::optional<RmlUiPass>
@@ -49,6 +52,7 @@ private:
 
     RmlUiRenderPassScheduler m_scheduler;
     PerfCounters* m_perf = nullptr;
+    RenderTrace* m_trace = nullptr;
     int m_framebuffer_width = 1;
     int m_framebuffer_height = 1;
 };

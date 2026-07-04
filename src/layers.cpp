@@ -1,6 +1,7 @@
 #include "rmlui_bgfx_layers.hpp"
 #include "rmlui_bgfx_layer_composite_helpers.hpp"
 #include "rmlui_bgfx_layer_paths.hpp"
+#include "rmlui_bgfx_trace.hpp"
 
 #include <algorithm>
 
@@ -61,11 +62,18 @@ LayerRecord& BgfxLayerSystem::prepare_virtual_child(Rml::LayerHandle handle,
     preserved_resources.framebuffer = previous.framebuffer;
     preserved_resources.color = previous.color;
     preserved_resources.depth_stencil = previous.depth_stencil;
+    preserved_resources.target_lifetime = previous.target_lifetime;
+    preserved_resources.target_generation = previous.target_generation;
+    preserved_resources.color_format = previous.color_format;
+    preserved_resources.depth_stencil_format = previous.depth_stencil_format;
+    preserved_resources.msaa_samples = previous.msaa_samples;
     preserved_resources.texture_width = previous.texture_width;
     preserved_resources.texture_height = previous.texture_height;
+    preserved_resources.msaa_enabled = previous.msaa_enabled;
     previous.framebuffer = BGFX_INVALID_HANDLE;
     previous.color = BGFX_INVALID_HANDLE;
     previous.depth_stencil = BGFX_INVALID_HANDLE;
+    previous.target_generation = 0;
     previous.texture_width = 0;
     previous.texture_height = 0;
 
@@ -73,8 +81,14 @@ LayerRecord& BgfxLayerSystem::prepare_virtual_child(Rml::LayerHandle handle,
     child.framebuffer = preserved_resources.framebuffer;
     child.color = preserved_resources.color;
     child.depth_stencil = preserved_resources.depth_stencil;
+    child.target_lifetime = preserved_resources.target_lifetime;
+    child.target_generation = preserved_resources.target_generation;
+    child.color_format = preserved_resources.color_format;
+    child.depth_stencil_format = preserved_resources.depth_stencil_format;
+    child.msaa_samples = preserved_resources.msaa_samples;
     child.texture_width = preserved_resources.texture_width;
     child.texture_height = preserved_resources.texture_height;
+    child.msaa_enabled = preserved_resources.msaa_enabled;
     child.kind = LayerKind::VirtualChild;
     child.parent_layer = parent;
     child.bounds = provisional_bounds;
@@ -169,13 +183,23 @@ bool BgfxLayerSystem::materialize_layer(const BgfxLayerMaterializeContext& ctx,
 {
     LayerRecord* layer = layer_for_handle(handle);
     if (!layer) {
+        RMLUI_BGFX_TRACE_FAILURE(ctx.trace, "MaterializeLayer", "invalid layer handle", {
+            line.field("layer", size_t(handle));
+        });
         return false;
     }
     if (layer->kind == LayerKind::Root) {
+        RMLUI_BGFX_TRACE(ctx.trace, TraceCategory::Layer, "skip", "MaterializeLayer", {
+            line.field("layer", size_t(handle));
+            line.field("reason", "root layer");
+        });
         return true;
     }
     if (!ctx.choose_bounds || !ctx.ensure_layer || !ctx.clear_layer || !ctx.replay_clip_commands ||
         !ctx.replay_recorded_commands) {
+        RMLUI_BGFX_TRACE_FAILURE(ctx.trace, "MaterializeLayer", "missing callbacks", {
+            line.field("layer", size_t(handle));
+        });
         return false;
     }
     if (layer->materialized) {
@@ -184,19 +208,49 @@ bool BgfxLayerSystem::materialize_layer(const BgfxLayerMaterializeContext& ctx,
         if (!required_bounds || is_empty(*required_bounds) ||
             (current_overlap.x == required_bounds->x && current_overlap.y == required_bounds->y &&
              current_overlap.w == required_bounds->w && current_overlap.h == required_bounds->h)) {
+            RMLUI_BGFX_TRACE(ctx.trace, TraceCategory::Layer, "reuse", "MaterializeLayer", {
+                line.field("layer", size_t(handle));
+                line.fb_rect("bounds", layer->bounds.framebuffer);
+                line.fb_rect("required", required_bounds ? *required_bounds : FbRect{});
+                line.field("command_count", layer->commands.size());
+            });
             return true;
         }
+        RMLUI_BGFX_TRACE(ctx.trace, TraceCategory::Layer, "plan", "MaterializeLayerResize", {
+            line.field("layer", size_t(handle));
+            line.fb_rect("old_bounds", layer->bounds.framebuffer);
+            line.fb_rect("required", *required_bounds);
+        });
         layer->materialized = false;
         layer->clear_pending = true;
     }
 
     RenderBounds child_bounds = ctx.choose_bounds(*layer, required_bounds);
     const bool bounded = !is_full_frame_surface(child_bounds.framebuffer, ctx.surface);
+    RMLUI_BGFX_TRACE(ctx.trace, TraceCategory::Layer, "materialize", "MaterializeLayer", {
+        line.field("layer", size_t(handle));
+        line.field("kind", int(layer->kind));
+        line.field("recording", layer->recording);
+        line.field("command_count", layer->commands.size());
+        line.fb_rect("required", required_bounds ? *required_bounds : FbRect{});
+        line.fb_rect("chosen", child_bounds.framebuffer);
+        line.logical_rect("chosen_logical", child_bounds.logical);
+        line.field("bounded", bounded);
+        line.field("push_transform", layer->push_transform_valid);
+        line.scissor("push_scissor", layer->push_scissor);
+    });
     if (!ctx.ensure_layer(size_t(handle), child_bounds)) {
+        RMLUI_BGFX_TRACE_FAILURE(ctx.trace, "MaterializeLayer", "ensure layer target failed", {
+            line.field("layer", size_t(handle));
+            line.fb_rect("chosen", child_bounds.framebuffer);
+        });
         return false;
     }
     layer = layer_for_handle(handle);
     if (!layer) {
+        RMLUI_BGFX_TRACE_FAILURE(ctx.trace, "MaterializeLayer", "layer missing after ensure", {
+            line.field("layer", size_t(handle));
+        });
         return false;
     }
     layer->recording = false;
@@ -206,6 +260,10 @@ bool BgfxLayerSystem::materialize_layer(const BgfxLayerMaterializeContext& ctx,
 
     if (layer->clear_pending) {
         if (!ctx.clear_layer(handle, bounded)) {
+            RMLUI_BGFX_TRACE_FAILURE(ctx.trace, "MaterializeLayer", "clear failed", {
+                line.field("layer", size_t(handle));
+                line.fb_rect("bounds", layer->bounds.framebuffer);
+            });
             return false;
         }
         layer = layer_for_handle(handle);
@@ -213,6 +271,11 @@ bool BgfxLayerSystem::materialize_layer(const BgfxLayerMaterializeContext& ctx,
             return false;
         }
         layer->clear_pending = false;
+        RMLUI_BGFX_TRACE(ctx.trace, TraceCategory::Layer, "clear", "MaterializeLayer", {
+            line.field("layer", size_t(handle));
+            line.fb_rect("bounds", layer->bounds.framebuffer);
+            line.field("bounded", bounded);
+        });
     }
 
     if (layer->inherited_clip_command_count > 0) {
@@ -221,14 +284,28 @@ bool BgfxLayerSystem::materialize_layer(const BgfxLayerMaterializeContext& ctx,
         const std::vector<size_t> inherited_commands(layer->clip_commands.begin(),
                                                      layer->clip_commands.begin() + count);
         ctx.replay_clip_commands(handle, inherited_commands);
+        RMLUI_BGFX_TRACE(ctx.trace, TraceCategory::Clip, "replay",
+                         "MaterializeLayerInheritedClips", {
+                             line.field("layer", size_t(handle));
+                             line.field("count", inherited_commands.size());
+                         });
         layer = layer_for_handle(handle);
         if (!layer) {
+            RMLUI_BGFX_TRACE_FAILURE(ctx.trace, "MaterializeLayer", "layer missing after clips", {
+                line.field("layer", size_t(handle));
+            });
             return false;
         }
         layer->clip_mask_enabled = final_clip_mask_enabled;
         layer->stencil_ref = final_stencil_ref;
     }
-    return ctx.replay_recorded_commands(handle);
+    const bool replayed = ctx.replay_recorded_commands(handle);
+    RMLUI_BGFX_TRACE(ctx.trace, replayed ? TraceCategory::Layer : TraceCategory::Failure,
+                     replayed ? "replay" : "fail", "MaterializeLayerReplay", {
+                         line.field("layer", size_t(handle));
+                         line.field("ok", replayed);
+                     });
+    return replayed;
 }
 
 void BgfxLayerSystem::composite_layers(const BgfxLayerCompositeContext& ctx,
@@ -251,6 +328,9 @@ Rml::TextureHandle BgfxLayerSystem::save_layer_as_texture(const BgfxLayerSaveTex
     // the requested output size and pad/copy overlap explicitly when optimized materialization is
     // tighter than the callback texture bounds.
     if (ctx.direct_base_requested && size_t(m_active_layer) == 0) {
+        RMLUI_BGFX_TRACE(ctx.trace, TraceCategory::Texture, "skip", "SaveLayerAsTexture", {
+            line.field("reason", "direct base preservation required");
+        });
         if (ctx.root_requires_preservation) {
             *ctx.root_requires_preservation = true;
         }
@@ -260,10 +340,16 @@ Rml::TextureHandle BgfxLayerSystem::save_layer_as_texture(const BgfxLayerSaveTex
         return 0;
     }
     if (!ctx.current_save_bounds) {
+        RMLUI_BGFX_TRACE_FAILURE(ctx.trace, "SaveLayerAsTexture", "missing current_save_bounds", {
+            line.field("active_layer", size_t(m_active_layer));
+        });
         return 0;
     }
     const Rml::Rectanglei bounds = ctx.current_save_bounds();
     if (bounds.Width() <= 0 || bounds.Height() <= 0) {
+        RMLUI_BGFX_TRACE_FAILURE(ctx.trace, "SaveLayerAsTexture", "empty save bounds", {
+            line.rml_rect("save_bounds", bounds);
+        });
         return 0;
     }
     const FbRect global_bounds{bounds.Left(), bounds.Top(), bounds.Width(), bounds.Height()};
@@ -273,17 +359,31 @@ Rml::TextureHandle BgfxLayerSystem::save_layer_as_texture(const BgfxLayerSaveTex
         if (ctx.fail_frame) {
             ctx.fail_frame("SaveLayerAsTexture failed to materialize layer");
         }
+        RMLUI_BGFX_TRACE_FAILURE(ctx.trace, "SaveLayerAsTexture", "materialize failed", {
+            line.field("layer", size_t(m_active_layer));
+            line.fb_rect("global_bounds", global_bounds);
+        });
         return 0;
     }
     LayerRecord* layer = materialized_layer_for_handle(m_active_layer, ctx.direct_base_requested);
     if (!layer || !bgfx::isValid(layer->color) || !ctx.copy_region_to_texture || !ctx.textures ||
         !ctx.texture_counter) {
+        RMLUI_BGFX_TRACE_FAILURE(ctx.trace, "SaveLayerAsTexture", "invalid layer or callbacks", {
+            line.field("layer", size_t(m_active_layer));
+            line.field("has_layer", layer != nullptr);
+            line.field("has_color", layer && bgfx::isValid(layer->color));
+        });
         return 0;
     }
     // Convert the requested global framebuffer save rectangle into the compact layer target's
     // local sampling rectangle. The output texture still keeps the original global/scissor size.
     const FbRect local_bounds = local_rect_for_layer(global_bounds, *layer);
     if (is_empty(local_bounds)) {
+        RMLUI_BGFX_TRACE_FAILURE(ctx.trace, "SaveLayerAsTexture", "empty local bounds", {
+            line.field("layer", size_t(m_active_layer));
+            line.fb_rect("global_bounds", global_bounds);
+            line.fb_rect("layer_bounds", layer->bounds.framebuffer);
+        });
         return 0;
     }
 
@@ -315,6 +415,12 @@ Rml::TextureHandle BgfxLayerSystem::save_layer_as_texture(const BgfxLayerSaveTex
         if (ctx.fail_frame) {
             ctx.fail_frame("SaveLayerAsTexture failed to copy layer contents");
         }
+        RMLUI_BGFX_TRACE_FAILURE(ctx.trace, "SaveLayerAsTexture", "copy failed", {
+            line.field("layer", size_t(m_active_layer));
+            line.rml_rect("copy_bounds", copy_bounds);
+            line.field("output_w", output_dimensions.x);
+            line.field("output_h", output_dimensions.y);
+        });
         return 0;
     }
 
@@ -327,6 +433,17 @@ Rml::TextureHandle BgfxLayerSystem::save_layer_as_texture(const BgfxLayerSaveTex
                                     float(bounds.Width()), float(bounds.Height())},
                                    {bounds.Left(), bounds.Top(), bounds.Width(), bounds.Height()}},
                       TextureOwnership::SavedLayer});
+    RMLUI_BGFX_TRACE(ctx.trace, TraceCategory::Texture, "copy", "SaveLayerAsTexture", {
+        line.field("layer", size_t(m_active_layer));
+        line.field("texture_handle", handle);
+        line.handle("bgfx_tex", texture);
+        line.rml_rect("save_bounds", bounds);
+        line.fb_rect("global_bounds", global_bounds);
+        line.fb_rect("local_bounds", local_bounds);
+        line.rml_rect("copy_bounds", copy_bounds);
+        line.field("output_w", output_dimensions.x);
+        line.field("output_h", output_dimensions.y);
+    });
     return handle;
 }
 
@@ -337,6 +454,9 @@ BgfxLayerSystem::save_layer_as_mask_image(const BgfxLayerSaveMaskContext& ctx)
     // ordinary saved texture. Store explicit SavedMaskRecord ownership so later MaskImage
     // resolution uses this exact target/generation rather than anonymous BlendMask lookup.
     if (ctx.direct_base_requested && size_t(m_active_layer) == 0) {
+        RMLUI_BGFX_TRACE(ctx.trace, TraceCategory::Mask, "skip", "SaveLayerAsMaskImage", {
+            line.field("reason", "direct base preservation required");
+        });
         if (ctx.root_requires_preservation) {
             *ctx.root_requires_preservation = true;
         }
@@ -350,11 +470,20 @@ BgfxLayerSystem::save_layer_as_mask_image(const BgfxLayerSaveMaskContext& ctx)
         if (ctx.fail_frame) {
             ctx.fail_frame("SaveLayerAsMaskImage failed to materialize layer");
         }
+        RMLUI_BGFX_TRACE_FAILURE(ctx.trace, "SaveLayerAsMaskImage", "materialize failed", {
+            line.field("layer", size_t(m_active_layer));
+        });
         return 0;
     }
     LayerRecord* layer = materialized_layer_for_handle(m_active_layer, ctx.direct_base_requested);
     if (!layer || !bgfx::isValid(layer->color) || !ctx.filters || !ctx.saved_masks ||
         !ctx.filter_counter || !ctx.ensure_target || !ctx.composite) {
+        RMLUI_BGFX_TRACE_FAILURE(ctx.trace, "SaveLayerAsMaskImage",
+                                 "invalid layer or callbacks", {
+                                     line.field("layer", size_t(m_active_layer));
+                                     line.field("has_layer", layer != nullptr);
+                                     line.field("has_color", layer && bgfx::isValid(layer->color));
+                                 });
         return 0;
     }
     // Match RmlUi's GL3/reference contract: SaveLayerAsMaskImage stores a mask in framebuffer
@@ -365,6 +494,9 @@ BgfxLayerSystem::save_layer_as_mask_image(const BgfxLayerSaveMaskContext& ctx)
     mask_global_bounds =
         clamp_to_surface(align_outward_for_render_target(mask_global_bounds), ctx.surface);
     if (is_empty(mask_global_bounds)) {
+        RMLUI_BGFX_TRACE_FAILURE(ctx.trace, "SaveLayerAsMaskImage", "empty mask bounds", {
+            line.fb_rect("mask_bounds", mask_global_bounds);
+        });
         return 0;
     }
 
@@ -375,6 +507,9 @@ BgfxLayerSystem::save_layer_as_mask_image(const BgfxLayerSaveMaskContext& ctx)
         if (ctx.fail_frame) {
             ctx.fail_frame("SaveLayerAsMaskImage target allocation failed");
         }
+        RMLUI_BGFX_TRACE_FAILURE(ctx.trace, "SaveLayerAsMaskImage", "target allocation failed", {
+            line.fb_rect("mask_bounds", mask_global_bounds);
+        });
         return 0;
     }
 
@@ -383,12 +518,22 @@ BgfxLayerSystem::save_layer_as_mask_image(const BgfxLayerSaveMaskContext& ctx)
                                   layer->texture_width, layer->texture_height);
     source = subregion(source, mask_global_bounds);
     if (is_empty(source.global_bounds) || is_empty(source.local_rect)) {
+        RMLUI_BGFX_TRACE_FAILURE(ctx.trace, "SaveLayerAsMaskImage", "empty source region", {
+            line.texture_region("source", source);
+            line.fb_rect("layer_bounds", layer->bounds.framebuffer);
+            line.fb_rect("mask_bounds", mask_global_bounds);
+        });
         return 0;
     }
     const LocalFbRect destination_rect{source.global_bounds.x - mask_global_bounds.x,
                                        source.global_bounds.y - mask_global_bounds.y,
                                        source.global_bounds.w, source.global_bounds.h};
     if (is_empty(destination_rect)) {
+        RMLUI_BGFX_TRACE_FAILURE(ctx.trace, "SaveLayerAsMaskImage", "empty destination rect", {
+            line.texture_region("source", source);
+            line.fb_rect("mask_bounds", mask_global_bounds);
+            line.local_rect("destination", destination_rect);
+        });
         return 0;
     }
 
@@ -399,6 +544,10 @@ BgfxLayerSystem::save_layer_as_mask_image(const BgfxLayerSaveMaskContext& ctx)
         if (ctx.fail_frame) {
             ctx.fail_frame("SaveLayerAsMaskImage failed to copy layer contents");
         }
+        RMLUI_BGFX_TRACE_FAILURE(ctx.trace, "SaveLayerAsMaskImage", "copy failed", {
+            line.texture_region("source", source);
+            line.local_rect("destination", destination_rect);
+        });
         return 0;
     }
 
@@ -430,8 +579,22 @@ BgfxLayerSystem::save_layer_as_mask_image(const BgfxLayerSaveMaskContext& ctx)
     if (!filter_inserted.second || !mask_inserted.second) {
         ctx.filters->erase(handle);
         ctx.saved_masks->erase(handle);
+        RMLUI_BGFX_TRACE_FAILURE(ctx.trace, "SaveLayerAsMaskImage", "registry insert failed", {
+            line.field("filter", handle);
+        });
         return 0;
     }
+    RMLUI_BGFX_TRACE(ctx.trace, TraceCategory::Mask, "copy", "SaveLayerAsMaskImage", {
+        line.field("layer", size_t(m_active_layer));
+        line.field("filter", handle);
+        line.texture_region("source", source);
+        line.fb_rect("mask_bounds", mask_global_bounds);
+        line.local_rect("destination", destination_rect);
+        line.handle("mask_fb", blend_mask->framebuffer);
+        line.handle("mask_tex", blend_mask->color);
+        line.field("target_generation", blend_mask->generation);
+        line.field("full_frame", saved_mask.full_frame);
+    });
     return handle;
 }
 

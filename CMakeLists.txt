@@ -60,6 +60,7 @@ add_library(rmlui_bgfx STATIC
     src/reference_renderer.cpp
     src/render_interface.cpp
     src/target_cache.cpp
+    src/trace.cpp
 )
 add_library(rmlui_bgfx::rmlui_bgfx ALIAS rmlui_bgfx)
 

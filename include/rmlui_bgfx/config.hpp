@@ -4,7 +4,9 @@
 #include <bgfx/bgfx.h>
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -52,6 +54,49 @@ enum class RenderPath {
 enum class BlurSampleBoundsMode {
     SourceBounds,
     FullTexture,
+};
+
+enum class TraceCategory : uint64_t {
+    Frame = 1ull << 0ull,
+    Surface = 1ull << 1ull,
+    Pass = 1ull << 2ull,
+    Target = 1ull << 3ull,
+    Layer = 1ull << 4ull,
+    Record = 1ull << 5ull,
+    Replay = 1ull << 6ull,
+    Draw = 1ull << 7ull,
+    Clip = 1ull << 8ull,
+    Stencil = 1ull << 9ull,
+    Filter = 1ull << 10ull,
+    Mask = 1ull << 11ull,
+    Texture = 1ull << 12ull,
+    Copy = 1ull << 13ull,
+    Composite = 1ull << 14ull,
+    Shader = 1ull << 15ull,
+    Fallback = 1ull << 16ull,
+    Failure = 1ull << 17ull,
+    Perf = 1ull << 18ull,
+};
+
+[[nodiscard]] constexpr uint64_t trace_category_bit(TraceCategory category)
+{
+    return static_cast<uint64_t>(category);
+}
+
+struct TraceOptions {
+    uint64_t categories = 0;
+    uint64_t frame_begin = 0;
+    uint64_t frame_end = std::numeric_limits<uint64_t>::max();
+    uint32_t every_n_frames = 1;
+    uint32_t first_n_frames = 0;
+    size_t ring_line_count = 0;
+    bool flush_on_failure = true;
+    bool include_reused_passes = false;
+    bool include_skips = true;
+    std::string operation_filter;
+    std::string reason_filter;
+
+    [[nodiscard]] bool enabled() const noexcept { return categories != 0 || ring_line_count != 0; }
 };
 
 enum class SystemProgram {
@@ -195,7 +240,8 @@ struct RendererConfig {
     BlurSampleBoundsMode blur_sample_bounds_mode = BlurSampleBoundsMode::SourceBounds;
     uint8_t reference_msaa_samples = 2;
     bool trace_filter_pipeline = false;
-    bool bounded_transform_layers = false;
+    TraceOptions trace_options;
+    bool bounded_transform_layers = true;
 };
 
 } // namespace rmlui_bgfx

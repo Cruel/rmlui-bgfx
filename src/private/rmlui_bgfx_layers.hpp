@@ -13,8 +13,11 @@
 
 namespace rmlui_bgfx {
 
+class RenderTrace;
+
 struct BgfxLayerMaterializeContext {
     SurfaceMetrics surface{};
+    RenderTrace* trace = nullptr;
     std::function<RenderBounds(const LayerRecord&, std::optional<FbRect>)> choose_bounds;
     std::function<bool(size_t, const RenderBounds&)> ensure_layer;
     std::function<bool(Rml::LayerHandle, bool)> clear_layer;
@@ -28,6 +31,7 @@ struct BgfxLayerCompositeContext {
     SurfaceMetrics surface{};
     ScissorState scissor_state;
     RenderPath render_path = RenderPath::Optimized;
+    RenderTrace* trace = nullptr;
     BgfxFilterPipeline* filter_pipeline = nullptr;
     BgfxFilterPipelineContext filter_context;
     std::function<void(const char*)> fail_frame;
@@ -43,6 +47,7 @@ struct BgfxLayerSaveTextureContext {
     bool* root_requires_preservation = nullptr;
     std::unordered_map<Rml::TextureHandle, TextureRecord>* textures = nullptr;
     Rml::TextureHandle* texture_counter = nullptr;
+    RenderTrace* trace = nullptr;
     std::function<void(const char*)> fail_frame;
     std::function<bool(Rml::LayerHandle, std::optional<FbRect>)> materialize_layer;
     std::function<Rml::Rectanglei()> current_save_bounds;
@@ -63,6 +68,7 @@ struct BgfxLayerSaveMaskContext {
     std::unordered_map<Rml::CompiledFilterHandle, SavedMaskRecord>* saved_masks = nullptr;
     Rml::TextureHandle* texture_counter = nullptr;
     Rml::CompiledFilterHandle* filter_counter = nullptr;
+    RenderTrace* trace = nullptr;
     std::function<void(const char*)> fail_frame;
     std::function<bool(Rml::LayerHandle, std::optional<FbRect>)> materialize_layer;
     std::function<Rml::Rectanglei()> current_save_bounds;

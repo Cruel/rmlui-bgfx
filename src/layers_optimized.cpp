@@ -1,6 +1,7 @@
 #include "rmlui_bgfx_layer_paths.hpp"
 
 #include "rmlui_bgfx_layer_composite_helpers.hpp"
+#include "rmlui_bgfx_trace.hpp"
 
 #include <span>
 #include <cstdio>
@@ -29,40 +30,31 @@ BgfxFilterPipelineContext filter_context_for_source(const BgfxLayerCompositeCont
     return filter_context;
 }
 
-void trace_rect(const char* label, FbRect rect)
-{
-    std::fprintf(stderr, " %s=(%d,%d %dx%d)", label, rect.x, rect.y, rect.w, rect.h);
-}
-
 void trace_layer_state(const BgfxLayerCompositeContext& ctx, const char* stage,
                        Rml::LayerHandle source, Rml::LayerHandle destination,
                        const LayerRecord& source_layer, const LayerRecord& destination_layer,
                        FbRect required_bounds, Rml::Span<const Rml::CompiledFilterHandle> filters)
 {
-    if (!ctx.filter_context.trace_filter_pipeline || filters.empty()) {
-        return;
-    }
-    std::fprintf(
-        stderr,
-        "[rmlui-bgfx][optimized-layer] %s src=%zu dst=%zu filters=%zu src_kind=%d dst_kind=%d "
-        "src_recording=%d src_materialized=%d src_transform=%d dst_transform=%d src_clip=%d "
-        "src_clips=%zu dst_clip=%d dst_ref=%u",
-        stage, size_t(source), size_t(destination), size_t(filters.size()), int(source_layer.kind),
-        int(destination_layer.kind), source_layer.recording ? 1 : 0,
-        source_layer.materialized ? 1 : 0, source_layer.push_transform_valid ? 1 : 0,
-        destination_layer.push_transform_valid ? 1 : 0, source_layer.clip_mask_enabled ? 1 : 0,
-        source_layer.clip_commands.size(), destination_layer.clip_mask_enabled ? 1 : 0,
-        unsigned(destination_layer.stencil_ref));
-    trace_rect("required", required_bounds);
-    trace_rect("src_bounds", source_layer.bounds.framebuffer);
-    trace_rect("src_valid", source_layer.valid_content_bounds);
-    trace_rect("dst_bounds", destination_layer.bounds.framebuffer);
-    if (ctx.scissor_state.enabled) {
-        trace_rect("scissor",
-                   FbRect{ctx.scissor_state.region.Left(), ctx.scissor_state.region.Top(),
-                          ctx.scissor_state.region.Width(), ctx.scissor_state.region.Height()});
-    }
-    std::fprintf(stderr, "\n");
+    RMLUI_BGFX_TRACE(ctx.trace, TraceCategory::Layer, stage, "CompositeLayers", {
+        line.field("src", size_t(source));
+        line.field("dst", size_t(destination));
+        line.field("filters", filters.size());
+        line.field("src_kind", int(source_layer.kind));
+        line.field("dst_kind", int(destination_layer.kind));
+        line.field("src_recording", source_layer.recording);
+        line.field("src_materialized", source_layer.materialized);
+        line.field("src_transform", source_layer.push_transform_valid);
+        line.field("dst_transform", destination_layer.push_transform_valid);
+        line.field("src_clip", source_layer.clip_mask_enabled);
+        line.field("src_clips", source_layer.clip_commands.size());
+        line.field("dst_clip", destination_layer.clip_mask_enabled);
+        line.field("dst_ref", unsigned(destination_layer.stencil_ref));
+        line.fb_rect("source_required", required_bounds);
+        line.fb_rect("src_bounds", source_layer.bounds.framebuffer);
+        line.fb_rect("src_valid", source_layer.valid_content_bounds);
+        line.fb_rect("dst_bounds", destination_layer.bounds.framebuffer);
+        line.scissor("scissor", ctx.scissor_state);
+    });
 }
 
 void add_valid_content_bounds(LayerRecord& layer, FbRect bounds)
@@ -166,6 +158,12 @@ void composite_layers_optimized(BgfxLayerSystem& layer_system, const BgfxLayerCo
         if (ctx.fail_frame) {
             ctx.fail_frame("CompositeLayers received invalid layer handles");
         }
+        RMLUI_BGFX_TRACE_FAILURE(ctx.trace, "CompositeLayers", "invalid layer handles", {
+            line.field("src", size_t(source));
+            line.field("dst", size_t(destination));
+            line.field("has_src", source_layer != nullptr);
+            line.field("has_dst", destination_layer != nullptr);
+        });
         return;
     }
     if (ctx.direct_base_requested && !filters.empty() &&
@@ -176,10 +174,19 @@ void composite_layers_optimized(BgfxLayerSystem& layer_system, const BgfxLayerCo
         if (ctx.fail_frame) {
             ctx.fail_frame(nullptr);
         }
+        RMLUI_BGFX_TRACE(ctx.trace, TraceCategory::Composite, "skip", "CompositeLayers", {
+            line.field("src", size_t(source));
+            line.field("dst", size_t(destination));
+            line.field("reason", "direct base preservation required");
+        });
         return;
     }
     if (!ctx.filter_pipeline || !ctx.recorded_content_bounds || !ctx.materialize_layer ||
         !ctx.ensure_target || !ctx.composite) {
+        RMLUI_BGFX_TRACE_FAILURE(ctx.trace, "CompositeLayers", "missing callbacks", {
+            line.field("src", size_t(source));
+            line.field("dst", size_t(destination));
+        });
         return;
     }
     const std::vector<FilterRecord> resolved_filters =
@@ -190,6 +197,12 @@ void composite_layers_optimized(BgfxLayerSystem& layer_system, const BgfxLayerCo
         const Rml::Rectanglei scissor =
             clamp_scissor_to_surface(ctx.scissor_state.region, ctx.surface);
         if (scissor.Width() <= 0 || scissor.Height() <= 0) {
+            RMLUI_BGFX_TRACE(ctx.trace, TraceCategory::Composite, "skip", "CompositeLayers", {
+                line.field("src", size_t(source));
+                line.field("dst", size_t(destination));
+                line.field("reason", "empty scissor");
+                line.rml_rect("scissor", scissor);
+            });
             return;
         }
     }
@@ -236,6 +249,11 @@ void composite_layers_optimized(BgfxLayerSystem& layer_system, const BgfxLayerCo
     const bool saved_source_has_valid = source_layer->has_valid_content_bounds;
     const bool source_recorded_is_complete = !source_was_materialized;
     if (source_required_is_root_transform_scissor) {
+        RMLUI_BGFX_TRACE_FALLBACK(ctx.trace, "CompositeLayers", "root transformed filter scissor", {
+            line.field("src", size_t(source));
+            line.field("dst", size_t(destination));
+            line.fb_rect("source_required", source_required);
+        });
         // The reference renderer composites filtered transformed layers from the current save/work
         // rectangle, not from the union of all recorded transformed decorator geometry. Restrict
         // the materialized source to the same contract before replay so sibling/decorator bounds do
@@ -248,6 +266,11 @@ void composite_layers_optimized(BgfxLayerSystem& layer_system, const BgfxLayerCo
         if (ctx.fail_frame) {
             ctx.fail_frame("CompositeLayers failed to materialize source layer");
         }
+        RMLUI_BGFX_TRACE_FAILURE(ctx.trace, "CompositeLayers", "materialize source failed", {
+            line.field("src", size_t(source));
+            line.field("dst", size_t(destination));
+            line.fb_rect("source_required", source_required);
+        });
         return;
     }
     source_layer = layer_system.materialized_layer_for_handle(source, ctx.direct_base_requested);
@@ -259,6 +282,10 @@ void composite_layers_optimized(BgfxLayerSystem& layer_system, const BgfxLayerCo
         if (ctx.fail_frame) {
             ctx.fail_frame("CompositeLayers received unmaterialized source layer");
         }
+        RMLUI_BGFX_TRACE_FAILURE(ctx.trace, "CompositeLayers", "unmaterialized source", {
+            line.field("src", size_t(source));
+            line.field("dst", size_t(destination));
+        });
         return;
     }
     destination_layer =
@@ -297,6 +324,17 @@ void composite_layers_optimized(BgfxLayerSystem& layer_system, const BgfxLayerCo
         source_required_is_root_transform_scissor
             ? RenderBounds{framebuffer_to_logical(source_required, ctx.surface), source_required}
             : source_layer->bounds;
+    RMLUI_BGFX_TRACE(ctx.trace, TraceCategory::Composite, "plan", "CompositeLayersSource", {
+        line.field("src", size_t(source));
+        line.field("dst", size_t(destination));
+        line.field("has_filter_contract", has_filter_contract);
+        line.field("has_effective_filters", has_effective_filters);
+        line.field("source_recorded_complete", source_recorded_is_complete);
+        line.fb_rect("source_required", source_required);
+        line.fb_rect("source_valid_global", source_valid_global);
+        line.fb_rect("source_bounds", source_layer->bounds.framebuffer);
+        line.fb_rect("filter_source_bounds", filter_source_bounds.framebuffer);
+    });
 
     if (source == destination) {
         const FbRect scratch_global_bounds = source_layer->bounds.framebuffer;
@@ -306,6 +344,11 @@ void composite_layers_optimized(BgfxLayerSystem& layer_system, const BgfxLayerCo
             if (ctx.fail_frame) {
                 ctx.fail_frame("CompositeLayers failed to create scratch target");
             }
+            RMLUI_BGFX_TRACE_FAILURE(ctx.trace, "CompositeLayers", "scratch target failed", {
+                line.field("src", size_t(source));
+                line.field("dst", size_t(destination));
+                line.fb_rect("scratch_bounds", scratch_global_bounds);
+            });
             return;
         }
         source_layer =
@@ -313,6 +356,10 @@ void composite_layers_optimized(BgfxLayerSystem& layer_system, const BgfxLayerCo
         destination_layer =
             layer_system.materialized_layer_for_handle(destination, ctx.direct_base_requested);
         if (!source_layer || !destination_layer) {
+            RMLUI_BGFX_TRACE_FAILURE(ctx.trace, "CompositeLayers", "self layer missing", {
+                line.field("src", size_t(source));
+                line.field("dst", size_t(destination));
+            });
             return;
         }
         const FbRect scratch_local_bounds{0, 0, scratch->texture_width, scratch->texture_height};
@@ -327,6 +374,12 @@ void composite_layers_optimized(BgfxLayerSystem& layer_system, const BgfxLayerCo
             if (ctx.fail_frame) {
                 ctx.fail_frame("CompositeLayers scratch copy failed");
             }
+            RMLUI_BGFX_TRACE_FAILURE(ctx.trace, "CompositeLayers", "scratch copy failed", {
+                line.field("src", size_t(source));
+                line.field("dst", size_t(destination));
+                line.fb_rect("scratch_bounds", scratch_global_bounds);
+                line.local_rect("scratch_local", scratch_local_bounds);
+            });
             return;
         }
         BgfxFilterPipelineContext source_filter_context =
@@ -344,22 +397,21 @@ void composite_layers_optimized(BgfxLayerSystem& layer_system, const BgfxLayerCo
             filter_source_bounds,
             has_effective_filters ? filters : Rml::Span<const Rml::CompiledFilterHandle>());
         if (!bgfx::isValid(filtered.output.texture)) {
+            RMLUI_BGFX_TRACE_FAILURE(ctx.trace, "CompositeLayers", "invalid self-filter output", {
+                line.field("src", size_t(source));
+                line.field("dst", size_t(destination));
+                line.fb_rect("source_valid_global", source_valid_global);
+                line.fb_rect("filter_source_bounds", filter_source_bounds.framebuffer);
+            });
             return;
         }
-        if (ctx.filter_context.trace_filter_pipeline && has_effective_filters) {
-            std::fprintf(stderr,
-                         "[rmlui-bgfx][optimized-layer] filtered-self src=%zu dst=%zu out_tex=%u "
-                         "out_size=%dx%d",
-                         size_t(source), size_t(destination),
-                         bgfx::isValid(filtered.output.texture) ? filtered.output.texture.idx
-                                                                : 65535u,
-                         filtered.output.texture_width, filtered.output.texture_height);
-            trace_rect("out_global", filtered.output.global_bounds);
-            trace_rect("out_local", filtered.output.local_rect);
-            trace_rect("out_bounds", filtered.output_bounds.framebuffer);
-            trace_rect("valid_out", filtered.valid_output_bounds.framebuffer);
-            std::fprintf(stderr, "\n");
-        }
+        RMLUI_BGFX_TRACE(ctx.trace, TraceCategory::Filter, "end", "CompositeLayersSelfFilter", {
+            line.field("src", size_t(source));
+            line.field("dst", size_t(destination));
+            line.texture_region("output", filtered.output);
+            line.fb_rect("output_bounds", filtered.output_bounds.framebuffer);
+            line.fb_rect("valid_output", filtered.valid_output_bounds.framebuffer);
+        });
         destination_layer =
             layer_system.materialized_layer_for_handle(destination, ctx.direct_base_requested);
         if (!destination_layer) {
@@ -383,6 +435,12 @@ void composite_layers_optimized(BgfxLayerSystem& layer_system, const BgfxLayerCo
         const FbRect destination_local_bounds = local_rect_for_layer(
             final_filter_composite_global_bounds(filtered), *destination_layer);
         if (is_empty(destination_local_bounds)) {
+            RMLUI_BGFX_TRACE_FAILURE(ctx.trace, "CompositeLayers", "empty self destination rect", {
+                line.field("src", size_t(source));
+                line.field("dst", size_t(destination));
+                line.fb_rect("filtered_global", final_filter_composite_global_bounds(filtered));
+                line.fb_rect("dst_bounds", destination_layer->bounds.framebuffer);
+            });
             return;
         }
         if (!ctx.composite(make_layer_composite_op(
@@ -393,6 +451,11 @@ void composite_layers_optimized(BgfxLayerSystem& layer_system, const BgfxLayerCo
             if (ctx.fail_frame) {
                 ctx.fail_frame("CompositeLayers composite failed");
             }
+            RMLUI_BGFX_TRACE_FAILURE(ctx.trace, "CompositeLayers", "self composite failed", {
+                line.field("src", size_t(source));
+                line.field("dst", size_t(destination));
+                line.local_rect("destination", destination_local_bounds);
+            });
             return;
         }
         add_valid_content_bounds(*destination_layer, filtered.valid_output_bounds.framebuffer);
@@ -413,21 +476,21 @@ void composite_layers_optimized(BgfxLayerSystem& layer_system, const BgfxLayerCo
         filter_source_bounds,
         has_effective_filters ? filters : Rml::Span<const Rml::CompiledFilterHandle>());
     if (!bgfx::isValid(filtered.output.texture)) {
+        RMLUI_BGFX_TRACE_FAILURE(ctx.trace, "CompositeLayers", "invalid filter output", {
+            line.field("src", size_t(source));
+            line.field("dst", size_t(destination));
+            line.fb_rect("source_valid_global", source_valid_global);
+            line.fb_rect("filter_source_bounds", filter_source_bounds.framebuffer);
+        });
         return;
     }
-    if (ctx.filter_context.trace_filter_pipeline && has_effective_filters) {
-        std::fprintf(
-            stderr,
-            "[rmlui-bgfx][optimized-layer] filtered src=%zu dst=%zu out_tex=%u out_size=%dx%d",
-            size_t(source), size_t(destination),
-            bgfx::isValid(filtered.output.texture) ? filtered.output.texture.idx : 65535u,
-            filtered.output.texture_width, filtered.output.texture_height);
-        trace_rect("out_global", filtered.output.global_bounds);
-        trace_rect("out_local", filtered.output.local_rect);
-        trace_rect("out_bounds", filtered.output_bounds.framebuffer);
-        trace_rect("valid_out", filtered.valid_output_bounds.framebuffer);
-        std::fprintf(stderr, "\n");
-    }
+    RMLUI_BGFX_TRACE(ctx.trace, TraceCategory::Filter, "end", "CompositeLayersFilter", {
+        line.field("src", size_t(source));
+        line.field("dst", size_t(destination));
+        line.texture_region("output", filtered.output);
+        line.fb_rect("output_bounds", filtered.output_bounds.framebuffer);
+        line.fb_rect("valid_output", filtered.valid_output_bounds.framebuffer);
+    });
 
     {
         LayerRecord* dst = layer_system.layer_for_handle(destination);
@@ -445,6 +508,11 @@ void composite_layers_optimized(BgfxLayerSystem& layer_system, const BgfxLayerCo
                 if (ctx.fail_frame) {
                     ctx.fail_frame("CompositeLayers failed to preserve destination layer");
                 }
+                RMLUI_BGFX_TRACE_FAILURE(ctx.trace, "CompositeLayers",
+                                         "preserve destination failed", {
+                                             line.field("dst", size_t(destination));
+                                             line.fb_rect("dst_bounds", dst_bounds);
+                                         });
                 return;
             }
         }
@@ -452,6 +520,11 @@ void composite_layers_optimized(BgfxLayerSystem& layer_system, const BgfxLayerCo
             if (ctx.fail_frame) {
                 ctx.fail_frame("CompositeLayers failed to materialize destination layer");
             }
+            RMLUI_BGFX_TRACE_FAILURE(ctx.trace, "CompositeLayers",
+                                     "materialize destination failed", {
+                                         line.field("dst", size_t(destination));
+                                         line.fb_rect("dst_bounds", dst_bounds);
+                                     });
             return;
         }
         if (preserved_destination) {
@@ -462,6 +535,11 @@ void composite_layers_optimized(BgfxLayerSystem& layer_system, const BgfxLayerCo
                 if (ctx.fail_frame) {
                     ctx.fail_frame("CompositeLayers failed to restore destination layer");
                 }
+                RMLUI_BGFX_TRACE_FAILURE(ctx.trace, "CompositeLayers",
+                                         "restore destination failed", {
+                                             line.field("dst", size_t(destination));
+                                             line.fb_rect("dst_bounds", dst_bounds);
+                                         });
                 return;
             }
         }
@@ -472,6 +550,9 @@ void composite_layers_optimized(BgfxLayerSystem& layer_system, const BgfxLayerCo
         if (ctx.fail_frame) {
             ctx.fail_frame("CompositeLayers received unmaterialized destination layer");
         }
+        RMLUI_BGFX_TRACE_FAILURE(ctx.trace, "CompositeLayers", "unmaterialized destination", {
+            line.field("dst", size_t(destination));
+        });
         return;
     }
     bool destination_clip = destination_layer->clip_mask_enabled;
@@ -479,9 +560,17 @@ void composite_layers_optimized(BgfxLayerSystem& layer_system, const BgfxLayerCo
     if (source_layer->clip_mask_enabled && !source_layer->clip_commands.empty() &&
         ctx.replay_clip_commands) {
         ctx.replay_clip_commands(destination, source_layer->clip_commands);
+        RMLUI_BGFX_TRACE(ctx.trace, TraceCategory::Clip, "replay", "CompositeLayersSourceClips", {
+            line.field("src", size_t(source));
+            line.field("dst", size_t(destination));
+            line.field("count", source_layer->clip_commands.size());
+        });
         destination_layer =
             layer_system.materialized_layer_for_handle(destination, ctx.direct_base_requested);
         if (!destination_layer) {
+            RMLUI_BGFX_TRACE_FAILURE(ctx.trace, "CompositeLayers", "destination missing after clips", {
+                line.field("dst", size_t(destination));
+            });
             return;
         }
         destination_clip = true;
@@ -493,22 +582,23 @@ void composite_layers_optimized(BgfxLayerSystem& layer_system, const BgfxLayerCo
     // destination layer's target-local rectangle before building CompositeOp.
     const FbRect destination_local_bounds =
         local_rect_for_layer(final_filter_composite_global_bounds(filtered), *destination_layer);
-    if (ctx.filter_context.trace_filter_pipeline && has_effective_filters) {
-        std::fprintf(
-            stderr,
-            "[rmlui-bgfx][optimized-layer] composite src=%zu dst=%zu dst_clip=%d dst_ref=%u",
-            size_t(source), size_t(destination), destination_clip ? 1 : 0,
-            unsigned(destination_stencil_ref));
-        trace_rect("dst_local", destination_local_bounds);
-        if (destination_local_scissor.enabled) {
-            trace_rect("dst_scissor_local", FbRect{destination_local_scissor.region.Left(),
-                                                   destination_local_scissor.region.Top(),
-                                                   destination_local_scissor.region.Width(),
-                                                   destination_local_scissor.region.Height()});
-        }
-        std::fprintf(stderr, "\n");
-    }
+    RMLUI_BGFX_TRACE(ctx.trace, TraceCategory::Composite, "plan", "CompositeLayers", {
+        line.field("src", size_t(source));
+        line.field("dst", size_t(destination));
+        line.field("dst_clip", destination_clip);
+        line.field("dst_ref", unsigned(destination_stencil_ref));
+        line.local_rect("dst_local", destination_local_bounds);
+        line.scissor("dst_scissor_local", destination_local_scissor);
+        line.fb_rect("filtered_global", final_filter_composite_global_bounds(filtered));
+        line.fb_rect("dst_bounds", destination_layer->bounds.framebuffer);
+    });
     if (is_empty(destination_local_bounds)) {
+        RMLUI_BGFX_TRACE_FAILURE(ctx.trace, "CompositeLayers", "empty destination rect", {
+            line.field("src", size_t(source));
+            line.field("dst", size_t(destination));
+            line.fb_rect("filtered_global", final_filter_composite_global_bounds(filtered));
+            line.fb_rect("dst_bounds", destination_layer->bounds.framebuffer);
+        });
         return;
     }
     if (!ctx.composite(make_layer_composite_op(
@@ -519,6 +609,11 @@ void composite_layers_optimized(BgfxLayerSystem& layer_system, const BgfxLayerCo
         if (ctx.fail_frame) {
             ctx.fail_frame("CompositeLayers composite failed");
         }
+        RMLUI_BGFX_TRACE_FAILURE(ctx.trace, "CompositeLayers", "composite failed", {
+            line.field("src", size_t(source));
+            line.field("dst", size_t(destination));
+            line.local_rect("destination", destination_local_bounds);
+        });
         return;
     }
     add_valid_content_bounds(*destination_layer, filtered.valid_output_bounds.framebuffer);

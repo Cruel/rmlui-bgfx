@@ -1,5 +1,7 @@
 #include "rmlui_bgfx_passes.hpp"
 
+#include "rmlui_bgfx_trace.hpp"
+
 #include <algorithm>
 #include <limits>
 
@@ -46,6 +48,8 @@ BgfxPassBuilder::BgfxPassBuilder(RmlUiViewId begin, RmlUiViewId end, PerfCounter
 }
 
 void BgfxPassBuilder::set_perf_counters(PerfCounters* perf) { m_perf = perf; }
+
+void BgfxPassBuilder::set_trace(RenderTrace* trace) { m_trace = trace; }
 
 void BgfxPassBuilder::begin_frame(int framebuffer_width, int framebuffer_height)
 {
@@ -146,12 +150,27 @@ std::optional<RmlUiPass> BgfxPassBuilder::acquire(RmlUiPassRequest request,
         bgfx::isValid(framebuffer) ? framebuffer.idx : std::numeric_limits<uint16_t>::max();
     auto pass = m_scheduler.acquire(request);
     if (pass) {
+        if (!pass->reused || (m_trace && m_trace->include_reused_passes() &&
+                              m_trace->category_enabled(TraceCategory::Pass))) {
+            RMLUI_BGFX_TRACE(m_trace, TraceCategory::Pass,
+                             pass->reused ? "reuse" : "acquire", "AcquirePass", {
+                                 line.pass(*pass);
+                             });
+        }
         if (!pass->reused) {
             configure_pass(*pass);
         }
         if (m_perf) {
             m_perf->add_pass(pass->reused, request.reason);
         }
+    } else {
+        RMLUI_BGFX_TRACE_FAILURE(m_trace, "AcquirePass",
+                                 m_scheduler.error() && m_scheduler.error()[0]
+                                     ? m_scheduler.error()
+                                     : "pass acquisition failed",
+                                 {
+                                     line.pass_request(request);
+                                 });
     }
     return pass;
 }
@@ -167,12 +186,22 @@ void BgfxPassBuilder::configure_pass(const RmlUiPass& pass) const
                       static_cast<uint16_t>(std::max(pass.request.height, 1)));
     bgfx::setViewFrameBuffer(view, framebuffer_from_request(pass.request));
     bgfx::setViewClear(view, BGFX_CLEAR_NONE);
+    RMLUI_BGFX_TRACE(m_trace, TraceCategory::Pass, "submit", "ConfigurePass", {
+        line.pass(pass);
+    });
 }
 
 void BgfxPassBuilder::configure_clear(const RmlUiPass& pass, uint16_t clear_flags, uint32_t rgba,
                                       float depth, uint8_t stencil) const
 {
     bgfx::setViewClear(pass.view, clear_flags, rgba, depth, stencil);
+    RMLUI_BGFX_TRACE(m_trace, TraceCategory::Pass, "clear", "ConfigureClear", {
+        line.pass(pass);
+        line.field("clear_flags", clear_flags);
+        line.field("rgba", rgba);
+        line.field("depth", depth);
+        line.field("stencil", unsigned(stencil));
+    });
 }
 
 } // namespace rmlui_bgfx

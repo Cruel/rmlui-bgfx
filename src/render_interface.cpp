@@ -8,6 +8,7 @@
 #include "rmlui_bgfx_planning.hpp"
 #include "rmlui_bgfx_reference_renderer.hpp"
 #include "rmlui_bgfx_target_cache.hpp"
+#include "rmlui_bgfx_trace.hpp"
 #include "rmlui_bgfx_types.hpp"
 
 #include <RmlUi/Core/Dictionary.h>
@@ -207,6 +208,21 @@ ClipOperationPlan clip_operation_plan(Rml::ClipMaskOperation operation)
     return ClipOperationPlan::Set;
 }
 
+TraceOptions normalized_trace_options(const RendererConfig& config)
+{
+    TraceOptions options = config.trace_options;
+    if (config.trace_filter_pipeline) {
+        options.categories |= trace_category_bit(TraceCategory::Filter) |
+                              trace_category_bit(TraceCategory::Layer) |
+                              trace_category_bit(TraceCategory::Mask) |
+                              trace_category_bit(TraceCategory::Failure);
+    }
+    if (options.every_n_frames == 0) {
+        options.every_n_frames = 1;
+    }
+    return options;
+}
+
 } // namespace
 
 struct RenderInterface::Impl {
@@ -218,9 +234,13 @@ struct RenderInterface::Impl {
           reference_msaa_samples(config.reference_msaa_samples),
           trace_filter_pipeline(config.trace_filter_pipeline),
           bounded_transform_layers(config.bounded_transform_layers),
+          trace(config.render_path, normalized_trace_options(config)),
           pass_builder(config.views.begin, config.views.end, &perf),
           perf_logging_enabled(config.enable_perf_logging)
     {
+        pass_builder.set_trace(&trace);
+        target_cache.set_trace(&trace);
+
         layout.begin()
             .add(bgfx::Attrib::Position, 2, bgfx::AttribType::Float)
             .add(bgfx::Attrib::Color0, 4, bgfx::AttribType::Uint8, true)
@@ -1103,6 +1123,7 @@ struct RenderInterface::Impl {
     {
         return BgfxLayerMaterializeContext{
             surface,
+            &trace,
             [this](const LayerRecord& layer, std::optional<FbRect> required_bounds) {
                 return choose_materialized_layer_bounds(layer, required_bounds);
             },
@@ -1152,6 +1173,7 @@ struct RenderInterface::Impl {
             &root_requires_preservation,
             &textures,
             &texture_counter,
+            &trace,
             [this](const char* message) { fail_frame(message); },
             [this](Rml::LayerHandle handle, std::optional<FbRect> required_bounds) {
                 return materialize_layer(handle, required_bounds);
@@ -1182,6 +1204,7 @@ struct RenderInterface::Impl {
             &saved_masks,
             &texture_counter,
             &filter_counter,
+            &trace,
             [this](const char* message) { fail_frame(message); },
             [this](Rml::LayerHandle handle, std::optional<FbRect> required_bounds) {
                 const bool previous = suppress_child_layer_perf_count;
@@ -1291,7 +1314,13 @@ struct RenderInterface::Impl {
         if (!frame_failed && message) {
             std::fprintf(stderr, "[rmlui] %s\n", message);
         }
+        RMLUI_BGFX_TRACE_FAILURE(&trace, "Frame", message ? message : "frame failed", {
+            line.field("was_failed", frame_failed);
+        });
         frame_failed = true;
+        if (message) {
+            trace.dump_on_failure(message);
+        }
     }
 
     void submit(const GeometryRecord& geometry, Rml::Vector2f translation,
@@ -1442,6 +1471,7 @@ struct RenderInterface::Impl {
                                          blur_sample_bounds_mode,
                                          false,
                                          trace_filter_pipeline,
+                                         &trace,
                                          [this]() { return ensure_fullscreen_geometry(); },
                                          [this](const char* message) { fail_frame(message); }};
     }
@@ -1454,6 +1484,7 @@ struct RenderInterface::Impl {
             surface,
             scissor_state,
             render_path,
+            &trace,
             &filter_pipeline,
             filter_context(),
             [this](const char* message) { fail_frame(message); },
@@ -2057,6 +2088,8 @@ struct RenderInterface::Impl {
     BgfxDrawContext draw_context;
     BgfxFilterPipeline filter_pipeline;
     BgfxReferenceRenderer reference_renderer;
+    RenderTrace trace;
+    uint64_t frame_index = 0;
     BgfxPassBuilder pass_builder;
     BgfxTargetCache target_cache{&perf};
     BgfxLayerSystem layer_system{target_cache};
@@ -2118,8 +2151,21 @@ RenderInterface::operator bool() const
 
 void RenderInterface::resize(const SurfaceMetrics& surface) { m_impl->resize(surface); }
 
+std::uint64_t RenderInterface::frame_index() const { return m_impl ? m_impl->frame_index : 0; }
+
 void RenderInterface::begin_frame()
 {
+    ++m_impl->frame_index;
+    m_impl->trace.begin_frame(m_impl->frame_index, m_impl->surface);
+    RenderTrace* frame_trace = &m_impl->trace;
+    RMLUI_BGFX_TRACE(frame_trace, TraceCategory::Frame, "begin", "BeginFrame", {
+        line.field("logical_w", m_impl->logical_width);
+        line.field("logical_h", m_impl->logical_height);
+        line.field("framebuffer_w", m_impl->width);
+        line.field("framebuffer_h", m_impl->height);
+        line.field("scale_x", m_impl->surface.scale_x);
+        line.field("scale_y", m_impl->surface.scale_y);
+    });
     m_impl->pass_builder.begin_frame(m_impl->width, m_impl->height);
     m_impl->transform_valid = false;
     m_impl->scissor_enabled = false;
@@ -2156,6 +2202,12 @@ void RenderInterface::begin_frame()
 
 void RenderInterface::end_frame()
 {
+    RenderTrace* frame_trace = &m_impl->trace;
+    RMLUI_BGFX_TRACE(frame_trace, TraceCategory::Frame, "begin", "EndFrame", {
+        line.field("frame_failed", m_impl->frame_failed);
+        line.field("layer_stack", m_impl->layer_stack.size());
+        line.field("direct_base", m_impl->direct_base_requested);
+    });
     if (m_impl->render_path == RenderPath::Reference) {
         m_impl->reference_renderer.end_frame();
     } else {
@@ -2262,6 +2314,11 @@ void RenderInterface::end_frame()
         }
 #endif
     }
+    RMLUI_BGFX_TRACE(frame_trace, TraceCategory::Frame, "end", "EndFrame", {
+        line.field("frame_failed", m_impl->frame_failed);
+        line.field("direct_presented", m_impl->direct_base_presented);
+        line.field("root_requires_preservation", m_impl->root_requires_preservation);
+    });
 }
 
 Rml::CompiledGeometryHandle RenderInterface::CompileGeometry(Rml::Span<const Rml::Vertex> vertices,

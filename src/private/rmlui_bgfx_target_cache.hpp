@@ -12,6 +12,8 @@
 
 namespace rmlui_bgfx {
 
+class RenderTrace;
+
 class BgfxTargetCache {
 public:
     explicit BgfxTargetCache(PerfCounters* perf = nullptr);
@@ -21,6 +23,7 @@ public:
     BgfxTargetCache& operator=(const BgfxTargetCache&) = delete;
 
     void set_perf_counters(PerfCounters* perf);
+    void set_trace(RenderTrace* trace);
     void begin_frame();
 
     [[nodiscard]] std::vector<LayerRecord>& layers() { return m_layers; }
@@ -63,11 +66,28 @@ private:
     [[nodiscard]] TargetDescriptor make_postprocess_target_descriptor(
         PostprocessTargetKind kind, const FbRect& bounds, const SurfaceMetrics& surface) const;
     void log_target_allocation_failure(const TargetDescriptor& desc, const char* step) const;
+    void retire_layer_target(LayerRecord& layer);
+
+    struct RetiredLayerTarget {
+        bgfx::FrameBufferHandle framebuffer = BGFX_INVALID_HANDLE;
+        bgfx::TextureHandle color = BGFX_INVALID_HANDLE;
+        bgfx::TextureHandle depth_stencil = BGFX_INVALID_HANDLE;
+        RenderBounds bounds;
+        int texture_width = 0;
+        int texture_height = 0;
+        uint64_t generation = 0;
+        uint64_t retired_frame = 0;
+    };
+
+    void destroy_retired_layer_target(RetiredLayerTarget& target);
+    void destroy_retired_layer_targets();
 
     PerfCounters* m_perf = nullptr;
+    RenderTrace* m_trace = nullptr;
     uint64_t m_target_generation_counter = 0;
     uint64_t m_frame_generation = 0;
     std::vector<LayerRecord> m_layers;
+    std::vector<RetiredLayerTarget> m_retired_layer_targets;
     std::deque<RenderTargetRecord> m_postprocess_targets;
     LayerPoolPlan m_layer_pool;
     PostprocessPoolPlan m_postprocess_pool;

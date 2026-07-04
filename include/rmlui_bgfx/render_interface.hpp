@@ -4,6 +4,7 @@
 
 #include <RmlUi/Core/RenderInterface.h>
 
+#include <cstdint>
 #include <memory>
 
 namespace rmlui_bgfx {
@@ -18,6 +19,7 @@ public:
     void resize(const SurfaceMetrics& surface);
     void begin_frame();
     void end_frame();
+    [[nodiscard]] std::uint64_t frame_index() const;
     void set_perf_logging_enabled(bool enabled);
     void set_base_direct_compatibility(bool enabled);
 

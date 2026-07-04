@@ -9,15 +9,15 @@ cd /path/to/RmlUi
 /path/to/rmlui-bgfx/build/linux-samples/samples/rmlui_bgfx_sample_effects_probe 06
 ```
 
-The bgfx backend defaults to the correctness-focused reference render path. To force the bounded optimized render path for comparison, set:
+The bgfx backend defaults to the optimized render path. To force the optimized render path explicitly, set:
 
 ```bash
 RMLUI_BGFX_RENDER_PATH=optimized /path/to/rmlui-bgfx/build/linux-samples/samples/rmlui_bgfx_sample_effects_probe 06
 ```
 
-Use `RMLUI_BGFX_RENDER_PATH=reference` to explicitly select the default correctness path. Set `RMLUI_BGFX_FILTER_TRACE=1` to print filter/layer diagnostics while narrowing a failing case. Set it back to `0` for visual comparison.
+Use `RMLUI_BGFX_RENDER_PATH=reference` to select the GL3-compatible correctness path. Set `RMLUI_BGFX_FILTER_TRACE=1` to print filter/layer diagnostics while narrowing a failing case. Set it back to `0` for visual comparison.
 
-Phase 8's experimental bounded transformed-layer path is disabled by default. To compare it against the default optimized transform fallback, run the same probe with `RMLUI_BGFX_BOUNDED_TRANSFORM_LAYERS=1 RMLUI_BGFX_RENDER_PATH=optimized`.
+Bounded transformed layers are enabled by default in the optimized path. The old unbounded transform fallback can be forced for regression comparison with `RMLUI_BGFX_BOUNDED_TRANSFORM_LAYERS=0`, but it is known to clip the gold element in the full effects probe.
 
 Cases:
 
