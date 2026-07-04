@@ -205,14 +205,22 @@ bool BgfxLayerSystem::materialize_layer(const BgfxLayerMaterializeContext& ctx,
     if (layer->materialized) {
         const FbRect current_overlap =
             required_bounds ? intersect(layer->bounds.framebuffer, *required_bounds) : FbRect{};
-        if (!required_bounds || is_empty(*required_bounds) ||
-            (current_overlap.x == required_bounds->x && current_overlap.y == required_bounds->y &&
-             current_overlap.w == required_bounds->w && current_overlap.h == required_bounds->h)) {
+        const bool required_contained =
+            required_bounds && current_overlap.x == required_bounds->x &&
+            current_overlap.y == required_bounds->y && current_overlap.w == required_bounds->w &&
+            current_overlap.h == required_bounds->h;
+        const bool transparent_margin_only =
+            required_bounds && !is_empty(current_overlap) && layer->commands.empty() &&
+            layer->has_valid_content_bounds &&
+            !is_empty(intersect(layer->valid_content_bounds, layer->bounds.framebuffer));
+        if (!required_bounds || is_empty(*required_bounds) || required_contained ||
+            transparent_margin_only) {
             RMLUI_BGFX_TRACE(ctx.trace, TraceCategory::Layer, "reuse", "MaterializeLayer", {
                 line.field("layer", size_t(handle));
                 line.fb_rect("bounds", layer->bounds.framebuffer);
                 line.fb_rect("required", required_bounds ? *required_bounds : FbRect{});
                 line.field("command_count", layer->commands.size());
+                line.field("transparent_margin", transparent_margin_only);
             });
             return true;
         }
@@ -486,13 +494,14 @@ BgfxLayerSystem::save_layer_as_mask_image(const BgfxLayerSaveMaskContext& ctx)
                                  });
         return 0;
     }
-    // Match RmlUi's GL3/reference contract: SaveLayerAsMaskImage stores a mask in framebuffer
-    // coordinates, not in the compact mask-layer coordinate system. The optimized copy may still
-    // only populate the overlapping subregion below, but the saved mask resource itself keeps the
-    // full-frame coordinate contract used by the later MaskImage filter.
-    FbRect mask_global_bounds{0, 0, ctx.surface.framebuffer_width, ctx.surface.framebuffer_height};
-    mask_global_bounds =
-        clamp_to_surface(align_outward_for_render_target(mask_global_bounds), ctx.surface);
+    TextureRegion source =
+        make_layer_texture_region(layer->color, layer->bounds.framebuffer, full_local_rect(*layer),
+                                  layer->texture_width, layer->texture_height);
+    // Keep the saved mask in framebuffer coordinates, but allocate only the materialized source
+    // layer's physical coverage. MaskImage sampling treats pixels outside this rectangle as
+    // transparent through the UV bounds check in the mask multiply shader.
+    FbRect mask_global_bounds =
+        clamp_to_surface(align_outward_for_render_target(source.global_bounds), ctx.surface);
     if (is_empty(mask_global_bounds)) {
         RMLUI_BGFX_TRACE_FAILURE(ctx.trace, "SaveLayerAsMaskImage", "empty mask bounds", {
             line.fb_rect("mask_bounds", mask_global_bounds);
@@ -513,9 +522,6 @@ BgfxLayerSystem::save_layer_as_mask_image(const BgfxLayerSaveMaskContext& ctx)
         return 0;
     }
 
-    TextureRegion source =
-        make_layer_texture_region(layer->color, layer->bounds.framebuffer, full_local_rect(*layer),
-                                  layer->texture_width, layer->texture_height);
     source = subregion(source, mask_global_bounds);
     if (is_empty(source.global_bounds) || is_empty(source.local_rect)) {
         RMLUI_BGFX_TRACE_FAILURE(ctx.trace, "SaveLayerAsMaskImage", "empty source region", {

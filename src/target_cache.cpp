@@ -261,6 +261,10 @@ void BgfxTargetCache::retire_layer_target(LayerRecord& layer)
                                            layer.bounds,
                                            layer.texture_width,
                                            layer.texture_height,
+                                           layer.color_format,
+                                           layer.depth_stencil_format,
+                                           layer.msaa_samples,
+                                           layer.msaa_enabled,
                                            layer.target_generation,
                                            m_frame_generation});
     }
@@ -414,6 +418,63 @@ bool BgfxTargetCache::ensure_layer_target(uint32_t slot, const RenderBounds& bou
     std::vector<size_t> saved_clip_commands = std::move(layer_record.clip_commands);
     std::vector<RecordedDrawCommand> saved_commands = std::move(layer_record.commands);
     retire_layer_target(layer_record);
+
+    for (auto it = m_retired_layer_targets.begin(); it != m_retired_layer_targets.end(); ++it) {
+        if (bgfx::isValid(it->framebuffer) && it->texture_width == descriptor.texture_width &&
+            it->texture_height == descriptor.texture_height &&
+            it->color_format == descriptor.color_format &&
+            it->depth_stencil_format == descriptor.depth_stencil_format &&
+            it->msaa_samples == descriptor.msaa_samples && it->msaa_enabled == requested_msaa) {
+            layer_record.framebuffer = it->framebuffer;
+            layer_record.color = it->color;
+            layer_record.depth_stencil = it->depth_stencil;
+            layer_record.bounds = bounds;
+            layer_record.valid_content_bounds = saved_valid_content_bounds;
+            layer_record.has_valid_content_bounds = saved_has_valid_content_bounds;
+            layer_record.conservative_mask_bounds = saved_conservative_mask_bounds;
+            layer_record.content_bounds_transform_fallback = saved_content_bounds_transform_fallback;
+            layer_record.content_bounds_inverse_mask_fallback =
+                saved_content_bounds_inverse_mask_fallback;
+            layer_record.texture_width = descriptor.texture_width;
+            layer_record.texture_height = descriptor.texture_height;
+            layer_record.target_lifetime = descriptor.lifetime;
+            layer_record.target_generation = it->generation;
+            layer_record.color_format = descriptor.color_format;
+            layer_record.depth_stencil_format = descriptor.depth_stencil_format;
+            layer_record.msaa_samples = descriptor.msaa_samples;
+            layer_record.msaa_enabled = requested_msaa;
+            layer_record.clip_mask_enabled = saved_clip_mask_enabled;
+            layer_record.stencil_ref = saved_stencil_ref;
+            layer_record.clip_commands = std::move(saved_clip_commands);
+            layer_record.inherited_clip_command_count = saved_inherited_clip_command_count;
+            layer_record.kind = saved_kind;
+            layer_record.parent_layer = saved_parent_layer;
+            layer_record.push_scissor = saved_push_scissor;
+            layer_record.push_transform_valid = saved_push_transform_valid;
+            layer_record.recording = saved_recording;
+            layer_record.materialized = true;
+            layer_record.clear_pending = saved_clear_pending;
+            layer_record.commands = std::move(saved_commands);
+            bx::mtxOrtho(layer_record.projection, bounds.logical.x,
+                         bounds.logical.x + bounds.logical.w,
+                         bounds.logical.y + bounds.logical.h, bounds.logical.y, -10000.0f,
+                         10000.0f, 0.0f, bgfx::getCaps()->homogeneousDepth);
+            m_layer_pool.note_allocated(slot);
+            RMLUI_BGFX_TRACE(m_trace, TraceCategory::Target, "reuse", "EnsureLayerTarget", {
+                line.field("slot", slot);
+                line.handle("fb", layer_record.framebuffer);
+                line.handle("tex", layer_record.color);
+                line.fb_rect("bounds", layer_record.bounds.framebuffer);
+                line.field("generation", layer_record.target_generation);
+                line.field("source", "retired");
+            });
+            it->framebuffer = BGFX_INVALID_HANDLE;
+            it->color = BGFX_INVALID_HANDLE;
+            it->depth_stencil = BGFX_INVALID_HANDLE;
+            m_retired_layer_targets.erase(it);
+            return true;
+        }
+    }
 
     const uint64_t color_flags =
         requested_msaa ? msaa_color_flags

@@ -498,8 +498,11 @@ void composite_layers_optimized(BgfxLayerSystem& layer_system, const BgfxLayerCo
             dst =
                 layer_system.materialized_layer_for_handle(destination, ctx.direct_base_requested);
         }
+        const bool use_existing_destination_bounds =
+            dst && (!dst->recording || dst->materialized || !dst->commands.empty());
         const FbRect dst_bounds =
-            dst ? union_rects(dst->bounds.framebuffer, filtered.output_bounds.framebuffer)
+            use_existing_destination_bounds
+                ? union_rects(dst->bounds.framebuffer, filtered.output_bounds.framebuffer)
                 : filtered.output_bounds.framebuffer;
         std::optional<PreservedLayerContents> preserved_destination;
         if (dst) {

@@ -75,6 +75,10 @@ private:
         RenderBounds bounds;
         int texture_width = 0;
         int texture_height = 0;
+        bgfx::TextureFormat::Enum color_format = bgfx::TextureFormat::RGBA8;
+        bgfx::TextureFormat::Enum depth_stencil_format = bgfx::TextureFormat::Unknown;
+        uint8_t msaa_samples = 0;
+        bool msaa_enabled = false;
         uint64_t generation = 0;
         uint64_t retired_frame = 0;
     };

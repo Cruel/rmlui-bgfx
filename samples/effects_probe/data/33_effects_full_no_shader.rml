@@ -106,6 +106,14 @@
 }
 .boxshadow_inset { box-shadow: #f4fd 10px 5px 5px 3px inset; }
 
+@keyframes animate-filter {
+	from { filter: drop-shadow(#f00) opacity(1.0) sepia(1.0); }
+	to   { filter: drop-shadow(#000 30px 20px 5px) opacity(0.2) sepia(0.2); }
+}
+.animate {
+	animation: animate-filter 1.5s cubic-in-out infinite alternate;
+}
+
 </style>
 </head>
 <body
@@ -149,6 +157,7 @@
 	</table>
 	<button data-event-click="reset()">Reset</button>
 </div>
+
 <div class="filter"
 	data-style-transform="'scale(' + scale + ') rotateX(' + rotate_x + 'deg) rotateY(' + rotate_y + 'deg) rotateZ(' + rotate_z + 'deg)'"
 	data-style-filter="'opacity(' + opacity + ') sepia(' + sepia + ') grayscale(' + grayscale + ') saturate(' + saturate + ') brightness(' + brightness + ') contrast(' + contrast + ') hue-rotate(' + hue_rotate + 'deg) invert(' + invert + ') blur(' + blur + 'px)' + (drop_shadow ? ' drop-shadow(#f11b 10px 10px 8px)' : '')"
@@ -159,11 +168,13 @@
 	<div class="box boxshadow_inset"><img sprite="icon-invader"/>Hello, do you feel the funk?</div>
 
 	<div class="box"><img sprite="icon-invader"/>Hello, do you feel the funk?</div>
+	<div class="box big shader"><div class="label">"Creation" (Danilo Guanabara)</div></div>
 	<div class="box big gradient"><img sprite="icon-invader"/>Hello, do you feel the funk?</div>
 	<div class="box mask"><div class="placeholder"/>Hello, do you feel the funk?</div>
 
 	<div class="box hue_rotate"><img sprite="icon-invader"/>Hello, do you feel the funk?</div>
 
+	<div class="box animate"><img sprite="icon-invader"/>Hello, do you feel the funk?</div>
 	<div class="box saturate"><img sprite="icon-invader"/>Hello, do you feel the funk?</div>
 	<div class="box invert"><img sprite="icon-invader"/>Hello, do you feel the funk?</div>
 	<div class="box blur"><img sprite="icon-invader"/>Hello, do you feel the funk?</div>

@@ -764,10 +764,17 @@ struct RenderInterface::Impl {
         }
         if (!is_empty(saved_texture_bounds)) {
             if (layer.push_transform_valid) {
-                // The layer transform is applied after recording. A compact target in untransformed
-                // content coordinates cannot preserve a saved texture's render-space contract.
-                // Keep this fallback explicit until saved callback quads have a proven bounded
-                // transform mapping.
+                if (required_bounds && !is_empty(*required_bounds)) {
+                    const FbRect required = clamp_to_surface(
+                        align_outward_for_render_target(*required_bounds), surface);
+                    if (!is_empty(required)) {
+                        return bounds_from_framebuffer_rect(required);
+                    }
+                }
+                // The layer transform is applied after recording. Without an explicit
+                // compositor/filter window, a compact target in untransformed content coordinates
+                // cannot prove the saved texture's render-space contract. Keep that fallback
+                // explicit for callers that do not provide required bounds.
                 return bounds_from_framebuffer_rect({0, 0, width, height});
             }
             // Preserve the callback quad's complete coordinate space without paying for a
@@ -1824,13 +1831,27 @@ struct RenderInterface::Impl {
             command_fb_bounds(command.geometry, command.translation, command.scissor,
                               command.transform_valid, command.transform);
         switch (command.operation) {
-        case Rml::ClipMaskOperation::Set:
-            // GL3 clears broadly within the active framebuffer/scissor before replacing through
-            // geometry. Do not narrow this clear to command geometry bounds.
-            clear_active_stencil(0, command.scissor);
+        case Rml::ClipMaskOperation::Set: {
+            ScissorState clear_scissor = command.scissor;
+            if (!clear_scissor.enabled && command_bounds) {
+                FbRect clear_bounds = *command_bounds;
+                if (LayerRecord* layer = current_layer();
+                    layer && layer->conservative_mask_bounds.active &&
+                    !layer->conservative_mask_bounds.inverse_fallback) {
+                    clear_bounds = union_rects(clear_bounds, layer->conservative_mask_bounds.bounds);
+                }
+                if (!is_empty(clear_bounds)) {
+                    clear_scissor = ScissorState{
+                        true,
+                        Rml::Rectanglei::FromPositionSize(
+                            {clear_bounds.x, clear_bounds.y}, {clear_bounds.w, clear_bounds.h})};
+                }
+            }
+            clear_active_stencil(0, clear_scissor);
             submit_to_clip_mask(it->second, command.translation, stencil_replace_state(1),
                                 command.scissor, command.transform_valid, command.transform);
             break;
+        }
         case Rml::ClipMaskOperation::SetInverse:
             clear_active_stencil(1, command.scissor);
             submit_to_clip_mask(it->second, command.translation, stencil_replace_state(0),
