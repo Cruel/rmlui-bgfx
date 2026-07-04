@@ -8,6 +8,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <string>
@@ -197,8 +198,19 @@ TEST_CASE("RmlUi target cache postprocess lifetimes split viewport and frame tar
     CHECK(full_frame_reused_same_frame->last_used_frame == 0);
 
     target_cache.begin_frame();
-    REQUIRE(target_cache.postprocess_targets().size() == 1);
-    CHECK(target_cache.postprocess_targets().front().generation == full_frame_generation);
+    REQUIRE(target_cache.postprocess_targets().size() == 2);
+    CHECK(std::count_if(target_cache.postprocess_targets().begin(),
+                        target_cache.postprocess_targets().end(),
+                        [](const rmlui_bgfx::RenderTargetRecord& target) {
+                            return target.lifetime == rmlui_bgfx::TargetLifetime::Viewport &&
+                                   target.kind == rmlui_bgfx::PostprocessTargetKind::Primary;
+                        }) == 1);
+    CHECK(std::count_if(target_cache.postprocess_targets().begin(),
+                        target_cache.postprocess_targets().end(),
+                        [](const rmlui_bgfx::RenderTargetRecord& target) {
+                            return target.lifetime == rmlui_bgfx::TargetLifetime::Frame &&
+                                   target.kind == rmlui_bgfx::PostprocessTargetKind::Secondary;
+                        }) == 1);
 
     rmlui_bgfx::RenderTargetRecord* full_frame_next =
         target_cache.acquire_postprocess_target(rmlui_bgfx::PostprocessTargetKind::Primary,
@@ -213,8 +225,7 @@ TEST_CASE("RmlUi target cache postprocess lifetimes split viewport and frame tar
         target_cache.acquire_postprocess_target(rmlui_bgfx::PostprocessTargetKind::Secondary,
                                                 bounded_bounds, surface);
     REQUIRE(bounded_next != nullptr);
-    CHECK(bounded_next->generation > full_frame_generation);
-    CHECK(bounded_next->generation > bounded_generation);
+    CHECK(bounded_next->generation == bounded_generation);
     CHECK(bounded_next->lifetime == rmlui_bgfx::TargetLifetime::Frame);
 
     target_cache.resize(surface);
@@ -225,7 +236,7 @@ TEST_CASE("RmlUi target cache postprocess lifetimes split viewport and frame tar
     CHECK(recreated_full_frame->generation > full_frame_generation);
 }
 
-TEST_CASE("RmlUi target cache drops bounded postprocess targets at frame boundary")
+TEST_CASE("RmlUi target cache defers bounded postprocess target GC past frame boundary")
 {
     BgfxNoopScope bgfx;
     REQUIRE(bgfx.initialized());
@@ -242,6 +253,17 @@ TEST_CASE("RmlUi target cache drops bounded postprocess targets at frame boundar
     CHECK(target_cache.postprocess_targets().size() == 3);
 
     target_cache.begin_frame();
+    REQUIRE(target_cache.postprocess_targets().size() == 3);
+    CHECK(std::count_if(target_cache.postprocess_targets().begin(),
+                        target_cache.postprocess_targets().end(),
+                        [](const rmlui_bgfx::RenderTargetRecord& target) {
+                            return target.lifetime == rmlui_bgfx::TargetLifetime::Frame;
+                        }) == 2);
+
+    for (int i = 0; i < 4; ++i) {
+        target_cache.begin_frame();
+    }
+
     REQUIRE(target_cache.postprocess_targets().size() == 1);
     CHECK(target_cache.postprocess_targets().front().lifetime ==
           rmlui_bgfx::TargetLifetime::Viewport);

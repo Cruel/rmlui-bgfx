@@ -12,7 +12,7 @@ namespace rmlui_bgfx {
 
 namespace {
 
-constexpr uint64_t kDeferredTargetDestroyFrames = 4;
+constexpr uint64_t kPostprocessTargetIdleFramesBeforeDestroy = 1;
 
 bool is_full_frame_rect(FbRect rect, int width, int height)
 {
@@ -147,16 +147,16 @@ void BgfxTargetCache::begin_frame()
     // GL3 keeps fixed-role postprocess targets viewport-scoped. The optimized path preserves that
     // for full-frame role targets while keeping bounded targets eligible for short idle GC so
     // scrolling through many slightly different filter bounds cannot grow memory without bound.
-    // Do not destroy bounded targets immediately on the next frame: bgfx backends may still have
-    // queued work referencing those handles, and rapid destroy/recreate churn can produce
-    // frame-rate-dependent flicker on slower/virtualized renderers.
+    // Keep bounded frame targets for one idle frame before GC: this avoids immediate
+    // destroy/recreate churn for recurring filter work while still collecting targets that do not
+    // reappear on the next frame.
     for (auto it = m_postprocess_targets.begin(); it != m_postprocess_targets.end();) {
         const bool invalid_target = !bgfx::isValid(it->framebuffer) || !bgfx::isValid(it->color);
         const uint64_t idle_frames =
             m_frame_generation >= it->last_used_frame ? m_frame_generation - it->last_used_frame : 0;
         const bool expired_frame_target =
             it->lifetime == TargetLifetime::Frame &&
-            idle_frames > kDeferredTargetDestroyFrames;
+            idle_frames > kPostprocessTargetIdleFramesBeforeDestroy;
         if (invalid_target || expired_frame_target) {
             RMLUI_BGFX_TRACE(m_trace, TraceCategory::Target, "destroy", "BeginFrameTargetGC", {
                 line.field("kind", postprocess_target_kind_name(it->kind));
@@ -177,7 +177,7 @@ void BgfxTargetCache::begin_frame()
         const bool invalid_target = !bgfx::isValid(it->framebuffer);
         const uint64_t idle_frames =
             m_frame_generation >= it->retired_frame ? m_frame_generation - it->retired_frame : 0;
-        if (invalid_target || idle_frames > kDeferredTargetDestroyFrames) {
+        if (invalid_target || idle_frames > kPostprocessTargetIdleFramesBeforeDestroy) {
             RMLUI_BGFX_TRACE(m_trace, TraceCategory::Target, "destroy", "RetiredLayerTargetGC", {
                 line.handle("fb", it->framebuffer);
                 line.handle("tex", it->color);

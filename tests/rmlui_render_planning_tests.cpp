@@ -83,10 +83,10 @@ TEST_CASE("RmlUi target metadata names are stable for diagnostics")
     CHECK(postprocess_target_kind_name(PostprocessTargetKind::Scratch) == std::string("Scratch"));
 }
 
-TEST_CASE("RmlUi renderer config defaults keep bounded transformed layers disabled")
+TEST_CASE("RmlUi renderer config defaults enable bounded transformed layers")
 {
     RendererConfig config;
-    CHECK_FALSE(config.bounded_transform_layers);
+    CHECK(config.bounded_transform_layers);
 }
 
 TEST_CASE("RmlUi target metadata defaults are safe and explicit")
