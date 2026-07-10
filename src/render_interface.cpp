@@ -212,10 +212,9 @@ TraceOptions normalized_trace_options(const RendererConfig& config)
 {
     TraceOptions options = config.trace_options;
     if (config.trace_filter_pipeline) {
-        options.categories |= trace_category_bit(TraceCategory::Filter) |
-                              trace_category_bit(TraceCategory::Layer) |
-                              trace_category_bit(TraceCategory::Mask) |
-                              trace_category_bit(TraceCategory::Failure);
+        options.categories |=
+            trace_category_bit(TraceCategory::Filter) | trace_category_bit(TraceCategory::Layer) |
+            trace_category_bit(TraceCategory::Mask) | trace_category_bit(TraceCategory::Failure);
     }
     if (options.every_n_frames == 0) {
         options.every_n_frames = 1;
@@ -238,6 +237,7 @@ struct RenderInterface::Impl {
           pass_builder(config.views.begin, config.views.end, &perf),
           perf_logging_enabled(config.enable_perf_logging)
     {
+        viewport = config.viewport;
         pass_builder.set_trace(&trace);
         target_cache.set_trace(&trace);
 
@@ -1321,9 +1321,8 @@ struct RenderInterface::Impl {
         if (!frame_failed && message) {
             std::fprintf(stderr, "[rmlui] %s\n", message);
         }
-        RMLUI_BGFX_TRACE_FAILURE(&trace, "Frame", message ? message : "frame failed", {
-            line.field("was_failed", frame_failed);
-        });
+        RMLUI_BGFX_TRACE_FAILURE(&trace, "Frame", message ? message : "frame failed",
+                                 { line.field("was_failed", frame_failed); });
         frame_failed = true;
         if (message) {
             trace.dump_on_failure(message);
@@ -1838,13 +1837,13 @@ struct RenderInterface::Impl {
                 if (LayerRecord* layer = current_layer();
                     layer && layer->conservative_mask_bounds.active &&
                     !layer->conservative_mask_bounds.inverse_fallback) {
-                    clear_bounds = union_rects(clear_bounds, layer->conservative_mask_bounds.bounds);
+                    clear_bounds =
+                        union_rects(clear_bounds, layer->conservative_mask_bounds.bounds);
                 }
                 if (!is_empty(clear_bounds)) {
                     clear_scissor = ScissorState{
-                        true,
-                        Rml::Rectanglei::FromPositionSize(
-                            {clear_bounds.x, clear_bounds.y}, {clear_bounds.w, clear_bounds.h})};
+                        true, Rml::Rectanglei::FromPositionSize({clear_bounds.x, clear_bounds.y},
+                                                                {clear_bounds.w, clear_bounds.h})};
                 }
             }
             clear_active_stencil(0, clear_scissor);
@@ -2081,6 +2080,7 @@ struct RenderInterface::Impl {
     int logical_width = 1;
     int logical_height = 1;
     SurfaceMetrics surface{};
+    FramebufferViewport viewport{};
     float projection[16]{};
     float identity[16]{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
     float transform[16]{};
@@ -2172,6 +2172,20 @@ RenderInterface::operator bool() const
 
 void RenderInterface::resize(const SurfaceMetrics& surface) { m_impl->resize(surface); }
 
+void RenderInterface::resize(const SurfaceMetrics& surface, FramebufferViewport viewport)
+{
+    m_impl->viewport = viewport;
+    const SurfaceMetrics sanitized = sanitize_surface_metrics(surface);
+    const SurfaceMetrics& current = m_impl->surface;
+    if (current.logical_width != sanitized.logical_width ||
+        current.logical_height != sanitized.logical_height ||
+        current.framebuffer_width != sanitized.framebuffer_width ||
+        current.framebuffer_height != sanitized.framebuffer_height ||
+        current.scale_x != sanitized.scale_x || current.scale_y != sanitized.scale_y) {
+        m_impl->resize(sanitized);
+    }
+}
+
 std::uint64_t RenderInterface::frame_index() const { return m_impl ? m_impl->frame_index : 0; }
 
 void RenderInterface::begin_frame()
@@ -2187,7 +2201,8 @@ void RenderInterface::begin_frame()
         line.field("scale_x", m_impl->surface.scale_x);
         line.field("scale_y", m_impl->surface.scale_y);
     });
-    m_impl->pass_builder.begin_frame(m_impl->width, m_impl->height);
+    m_impl->pass_builder.begin_frame(m_impl->width, m_impl->height, m_impl->viewport.x,
+                                     m_impl->viewport.y);
     m_impl->transform_valid = false;
     m_impl->scissor_enabled = false;
     m_impl->scissor_region =

@@ -17,6 +17,7 @@ public:
     explicit operator bool() const;
 
     void resize(const SurfaceMetrics& surface);
+    void resize(const SurfaceMetrics& surface, FramebufferViewport viewport);
     void begin_frame();
     void end_frame();
     [[nodiscard]] std::uint64_t frame_index() const;

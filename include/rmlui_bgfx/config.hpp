@@ -22,6 +22,13 @@ struct SurfaceMetrics {
     float scale_y = 1.0f;
 };
 
+struct FramebufferViewport {
+    int x = 0;
+    int y = 0;
+    int width = 1;
+    int height = 1;
+};
+
 [[nodiscard]] inline SurfaceMetrics sanitize_surface_metrics(SurfaceMetrics metrics)
 {
     metrics.logical_width = std::max(metrics.logical_width, 1);
@@ -229,6 +236,7 @@ public:
 
 struct RendererConfig {
     SurfaceMetrics surface{};
+    FramebufferViewport viewport{};
     ViewRange views{};
     ShaderProvider* shaders = nullptr;
     TextureLoader* textures = nullptr;

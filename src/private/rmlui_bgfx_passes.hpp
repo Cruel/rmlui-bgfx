@@ -18,7 +18,8 @@ public:
 
     void set_perf_counters(PerfCounters* perf);
     void set_trace(RenderTrace* trace);
-    void begin_frame(int framebuffer_width, int framebuffer_height);
+    void begin_frame(int framebuffer_width, int framebuffer_height, int viewport_x = 0,
+                     int viewport_y = 0);
 
     [[nodiscard]] std::optional<RmlUiPass>
     geometry(bgfx::FrameBufferHandle target, int width, int height,
@@ -55,6 +56,8 @@ private:
     RenderTrace* m_trace = nullptr;
     int m_framebuffer_width = 1;
     int m_framebuffer_height = 1;
+    int m_viewport_x = 0;
+    int m_viewport_y = 0;
 };
 
 } // namespace rmlui_bgfx

@@ -51,10 +51,13 @@ void BgfxPassBuilder::set_perf_counters(PerfCounters* perf) { m_perf = perf; }
 
 void BgfxPassBuilder::set_trace(RenderTrace* trace) { m_trace = trace; }
 
-void BgfxPassBuilder::begin_frame(int framebuffer_width, int framebuffer_height)
+void BgfxPassBuilder::begin_frame(int framebuffer_width, int framebuffer_height, int viewport_x,
+                                  int viewport_y)
 {
     m_framebuffer_width = std::max(framebuffer_width, 1);
     m_framebuffer_height = std::max(framebuffer_height, 1);
+    m_viewport_x = std::max(viewport_x, 0);
+    m_viewport_y = std::max(viewport_y, 0);
     m_scheduler.reset();
 }
 
@@ -152,10 +155,8 @@ std::optional<RmlUiPass> BgfxPassBuilder::acquire(RmlUiPassRequest request,
     if (pass) {
         if (!pass->reused || (m_trace && m_trace->include_reused_passes() &&
                               m_trace->category_enabled(TraceCategory::Pass))) {
-            RMLUI_BGFX_TRACE(m_trace, TraceCategory::Pass,
-                             pass->reused ? "reuse" : "acquire", "AcquirePass", {
-                                 line.pass(*pass);
-                             });
+            RMLUI_BGFX_TRACE(m_trace, TraceCategory::Pass, pass->reused ? "reuse" : "acquire",
+                             "AcquirePass", { line.pass(*pass); });
         }
         if (!pass->reused) {
             configure_pass(*pass);
@@ -168,9 +169,7 @@ std::optional<RmlUiPass> BgfxPassBuilder::acquire(RmlUiPassRequest request,
                                  m_scheduler.error() && m_scheduler.error()[0]
                                      ? m_scheduler.error()
                                      : "pass acquisition failed",
-                                 {
-                                     line.pass_request(request);
-                                 });
+                                 { line.pass_request(request); });
     }
     return pass;
 }
@@ -180,15 +179,16 @@ void BgfxPassBuilder::configure_pass(const RmlUiPass& pass) const
     const bgfx::ViewId view = pass.view;
     bgfx::setViewName(view, pass.request.name);
     bgfx::setViewMode(view, bgfx::ViewMode::Sequential);
-    bgfx::setViewRect(view, static_cast<uint16_t>(std::max(pass.request.x, 0)),
-                      static_cast<uint16_t>(std::max(pass.request.y, 0)),
+    const bool backbuffer = pass.request.bgfx_framebuffer_idx == bgfx::kInvalidHandle;
+    const int viewport_x = backbuffer ? m_viewport_x : 0;
+    const int viewport_y = backbuffer ? m_viewport_y : 0;
+    bgfx::setViewRect(view, static_cast<uint16_t>(std::max(pass.request.x + viewport_x, 0)),
+                      static_cast<uint16_t>(std::max(pass.request.y + viewport_y, 0)),
                       static_cast<uint16_t>(std::max(pass.request.width, 1)),
                       static_cast<uint16_t>(std::max(pass.request.height, 1)));
     bgfx::setViewFrameBuffer(view, framebuffer_from_request(pass.request));
     bgfx::setViewClear(view, BGFX_CLEAR_NONE);
-    RMLUI_BGFX_TRACE(m_trace, TraceCategory::Pass, "submit", "ConfigurePass", {
-        line.pass(pass);
-    });
+    RMLUI_BGFX_TRACE(m_trace, TraceCategory::Pass, "submit", "ConfigurePass", { line.pass(pass); });
 }
 
 void BgfxPassBuilder::configure_clear(const RmlUiPass& pass, uint16_t clear_flags, uint32_t rgba,
