@@ -233,6 +233,7 @@ struct RenderInterface::Impl {
           reference_msaa_samples(config.reference_msaa_samples),
           trace_filter_pipeline(config.trace_filter_pipeline),
           bounded_transform_layers(config.bounded_transform_layers),
+          output_framebuffer(config.output_framebuffer),
           preserve_backbuffer(config.preserve_backbuffer),
           trace(config.render_path, normalized_trace_options(config)),
           pass_builder(config.views.begin, config.views.end, &perf),
@@ -1257,7 +1258,8 @@ struct RenderInterface::Impl {
             reference_msaa_samples == 8 || reference_msaa_samples == 16;
         const auto policy = choose_base_presentation_policy(
             !base_direct_compatibility_enabled && !layer_msaa_requested, direct_mode_capable,
-            root_requires_preservation || preserve_backbuffer, stencil_capable,
+            root_requires_preservation || preserve_backbuffer || bgfx::isValid(output_framebuffer),
+            stencil_capable,
             webgl_feedback_sensitive);
         direct_base_requested = policy.mode == BasePresentationMode::DirectToBackbuffer;
         direct_base_fallback_reason = policy.fallback_reason;
@@ -1457,6 +1459,7 @@ struct RenderInterface::Impl {
         context.geometry_layout = &layout;
         context.reference_msaa_samples = reference_msaa_samples;
         context.trace = trace_filter_pipeline;
+        context.output_framebuffer = output_framebuffer;
         context.preserve_backbuffer = preserve_backbuffer;
         return context;
     }
@@ -2103,6 +2106,7 @@ struct RenderInterface::Impl {
     uint8_t reference_msaa_samples = 2;
     bool trace_filter_pipeline = false;
     bool bounded_transform_layers = false;
+    bgfx::FrameBufferHandle output_framebuffer = BGFX_INVALID_HANDLE;
     bool preserve_backbuffer = false;
 
     // Cached stencil format (probed once to avoid getInternalformatParameter spam).
@@ -2266,7 +2270,7 @@ void RenderInterface::end_frame()
                         texture_region(base->color, base->bounds.framebuffer,
                                        full_local_rect(*base), base->texture_width,
                                        base->texture_height),
-                        BGFX_INVALID_HANDLE,
+                        m_impl->output_framebuffer,
                         m_impl->preserve_backbuffer ? Rml::BlendMode::Blend
                                                     : Rml::BlendMode::Replace,
                         ScissorState{false, {}}, false, 1, RmlUiPassKind::FinalComposite,
@@ -2791,6 +2795,11 @@ void RenderInterface::set_perf_logging_enabled(bool enabled)
 void RenderInterface::set_base_direct_compatibility(bool enabled)
 {
     m_impl->base_direct_compatibility_enabled = enabled;
+}
+
+void RenderInterface::set_output_framebuffer(bgfx::FrameBufferHandle framebuffer)
+{
+    m_impl->output_framebuffer = framebuffer;
 }
 
 } // namespace rmlui_bgfx

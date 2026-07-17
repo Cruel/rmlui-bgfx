@@ -23,6 +23,7 @@ public:
     [[nodiscard]] std::uint64_t frame_index() const;
     void set_perf_logging_enabled(bool enabled);
     void set_base_direct_compatibility(bool enabled);
+    void set_output_framebuffer(bgfx::FrameBufferHandle framebuffer);
 
     Rml::CompiledGeometryHandle CompileGeometry(Rml::Span<const Rml::Vertex> vertices,
                                                 Rml::Span<const int> indices) override;

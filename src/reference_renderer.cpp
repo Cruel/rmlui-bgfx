@@ -198,7 +198,8 @@ void BgfxReferenceRenderer::end_frame()
     }
     if (!m_ctx.preserve_backbuffer) {
         if (auto clear_pass = m_ctx.pass_builder->base_clear(
-                BGFX_INVALID_HANDLE, m_surface.framebuffer_width, m_surface.framebuffer_height)) {
+            m_ctx.output_framebuffer, m_surface.framebuffer_width,
+            m_surface.framebuffer_height)) {
             bgfx::touch(clear_pass->view);
             if (m_ctx.perf) {
                 m_ctx.perf->add_clear(uint64_t(m_surface.framebuffer_width) *
@@ -210,7 +211,7 @@ void BgfxReferenceRenderer::end_frame()
             return;
         }
     }
-    if (!submit_composite(layer_region(*root), BGFX_INVALID_HANDLE, Rml::BlendMode::Blend,
+    if (!submit_composite(layer_region(*root), m_ctx.output_framebuffer, Rml::BlendMode::Blend,
                           ScissorState{false, {}}, false, 1, RmlUiPassKind::FinalComposite,
                           RmlUiPassReason::FinalComposite, "RmlUi.ReferenceFinalComposite",
                           full_frame_rect(m_surface))) {

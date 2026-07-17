@@ -250,9 +250,12 @@ struct RendererConfig {
     bool trace_filter_pipeline = false;
     TraceOptions trace_options;
     bool bounded_transform_layers = true;
+    // Optional destination for the root presentation. Child layers remain renderer-owned. The
+    // destination must match `surface.framebuffer_width/height` and outlive each begin/end frame.
+    bgfx::FrameBufferHandle output_framebuffer = BGFX_INVALID_HANDLE;
     // Preserve color already rendered to the destination backbuffer and composite the RmlUi root
-    // over it. Offscreen child layers still clear normally. This is intended for applications
-    // that render an engine-owned scene before RmlUi overlays.
+    // over it. This applies equally to the default backbuffer and `output_framebuffer`. Offscreen
+    // child layers still clear normally.
     bool preserve_backbuffer = false;
 };
 

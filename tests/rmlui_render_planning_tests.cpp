@@ -87,6 +87,7 @@ TEST_CASE("RmlUi renderer config defaults keep application composition opt-in")
 {
     RendererConfig config;
     CHECK(config.bounded_transform_layers);
+    CHECK_FALSE(bgfx::isValid(config.output_framebuffer));
     CHECK_FALSE(config.preserve_backbuffer);
 }
 
