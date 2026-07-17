@@ -196,17 +196,19 @@ void BgfxReferenceRenderer::end_frame()
         fail_frame("reference renderer missing root layer at frame end");
         return;
     }
-    if (auto clear_pass = m_ctx.pass_builder->base_clear(
-            BGFX_INVALID_HANDLE, m_surface.framebuffer_width, m_surface.framebuffer_height)) {
-        bgfx::touch(clear_pass->view);
-        if (m_ctx.perf) {
-            m_ctx.perf->add_clear(uint64_t(m_surface.framebuffer_width) *
-                                      uint64_t(m_surface.framebuffer_height),
-                                  true);
+    if (!m_ctx.preserve_backbuffer) {
+        if (auto clear_pass = m_ctx.pass_builder->base_clear(
+                BGFX_INVALID_HANDLE, m_surface.framebuffer_width, m_surface.framebuffer_height)) {
+            bgfx::touch(clear_pass->view);
+            if (m_ctx.perf) {
+                m_ctx.perf->add_clear(uint64_t(m_surface.framebuffer_width) *
+                                          uint64_t(m_surface.framebuffer_height),
+                                      true);
+            }
+        } else {
+            fail_frame("reference renderer backbuffer clear failed");
+            return;
         }
-    } else {
-        fail_frame("reference renderer backbuffer clear failed");
-        return;
     }
     if (!submit_composite(layer_region(*root), BGFX_INVALID_HANDLE, Rml::BlendMode::Blend,
                           ScissorState{false, {}}, false, 1, RmlUiPassKind::FinalComposite,

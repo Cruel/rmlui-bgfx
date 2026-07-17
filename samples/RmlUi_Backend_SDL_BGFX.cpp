@@ -1,4 +1,7 @@
 #include "RmlUi_Backend.h"
+#if defined(RMLUI_BGFX_SAMPLE_TEST_HOOKS)
+#include "RmlUi_Backend_SDL_BGFX_Test.h"
+#endif
 #include "RmlUi_Platform_SDL.h"
 
 #include <rmlui_bgfx/precompiled_material_shader_provider.hpp>
@@ -30,6 +33,10 @@
 #include <cstdlib>
 #include <limits>
 #include <memory>
+#if defined(RMLUI_BGFX_SAMPLE_TEST_HOOKS)
+#include <mutex>
+#include <optional>
+#endif
 #include <string>
 #include <string_view>
 #include <utility>
@@ -165,17 +172,16 @@ namespace {
         TraceCategory category;
     };
     static constexpr NamedCategory categories[] = {
-        {"frame", TraceCategory::Frame},     {"surface", TraceCategory::Surface},
-        {"pass", TraceCategory::Pass},       {"target", TraceCategory::Target},
-        {"layer", TraceCategory::Layer},     {"record", TraceCategory::Record},
-        {"replay", TraceCategory::Replay},   {"draw", TraceCategory::Draw},
-        {"clip", TraceCategory::Clip},       {"stencil", TraceCategory::Stencil},
-        {"filter", TraceCategory::Filter},   {"mask", TraceCategory::Mask},
-        {"texture", TraceCategory::Texture}, {"copy", TraceCategory::Copy},
-        {"composite", TraceCategory::Composite},
-        {"shader", TraceCategory::Shader},
-        {"fallback", TraceCategory::Fallback},
-        {"failure", TraceCategory::Failure}, {"perf", TraceCategory::Perf},
+        {"frame", TraceCategory::Frame},         {"surface", TraceCategory::Surface},
+        {"pass", TraceCategory::Pass},           {"target", TraceCategory::Target},
+        {"layer", TraceCategory::Layer},         {"record", TraceCategory::Record},
+        {"replay", TraceCategory::Replay},       {"draw", TraceCategory::Draw},
+        {"clip", TraceCategory::Clip},           {"stencil", TraceCategory::Stencil},
+        {"filter", TraceCategory::Filter},       {"mask", TraceCategory::Mask},
+        {"texture", TraceCategory::Texture},     {"copy", TraceCategory::Copy},
+        {"composite", TraceCategory::Composite}, {"shader", TraceCategory::Shader},
+        {"fallback", TraceCategory::Fallback},   {"failure", TraceCategory::Failure},
+        {"perf", TraceCategory::Perf},
     };
     for (const NamedCategory& category : categories) {
         if (string_equals_ignore_case(token, category.name))
@@ -261,8 +267,8 @@ namespace {
     if (const char* reason = std::getenv("RMLUI_BGFX_TRACE_REASON"))
         options.reason_filter = reason;
     options.include_reused_passes = env_flag_enabled("RMLUI_BGFX_TRACE_REUSED_PASSES");
-    options.include_skips = !std::getenv("RMLUI_BGFX_TRACE_SKIPS") ||
-                            env_flag_enabled("RMLUI_BGFX_TRACE_SKIPS");
+    options.include_skips =
+        !std::getenv("RMLUI_BGFX_TRACE_SKIPS") || env_flag_enabled("RMLUI_BGFX_TRACE_SKIPS");
     options.flush_on_failure = !std::getenv("RMLUI_BGFX_TRACE_ON_FAILURE") ||
                                env_flag_enabled("RMLUI_BGFX_TRACE_ON_FAILURE");
     return options;
@@ -293,10 +299,20 @@ namespace {
     return env_flag_enabled("RMLUI_BGFX_BOUNDED_TRANSFORM_LAYERS");
 }
 
-[[nodiscard]] bool debug_overlay_from_env()
+[[nodiscard]] uint8_t view_begin_from_env()
 {
-    return env_flag_enabled("RMLUI_BGFX_DEBUG_OVERLAY");
+    const char* value = std::getenv("RMLUI_BGFX_VIEW_BEGIN");
+    if (!value || value[0] == '\0')
+        return 0;
+    uint64_t parsed = 0;
+    if (!parse_u64_env(value, parsed) || parsed >= 255) {
+        std::fprintf(stderr, "[rmlui-bgfx] invalid RMLUI_BGFX_VIEW_BEGIN='%s'; using 0\n", value);
+        return 0;
+    }
+    return static_cast<uint8_t>(parsed);
 }
+
+[[nodiscard]] bool debug_overlay_from_env() { return env_flag_enabled("RMLUI_BGFX_DEBUG_OVERLAY"); }
 
 [[nodiscard]] uint8_t reference_msaa_samples_from_env()
 {
@@ -339,6 +355,11 @@ namespace {
         return {};
     return bytes;
 }
+
+#if defined(RMLUI_BGFX_SAMPLE_TEST_HOOKS)
+std::mutex screenshot_mutex;
+std::optional<BackendTest::Screenshot> captured_screenshot;
+#endif
 
 [[nodiscard]] bgfx::ShaderHandle load_shader_binary(const std::string& path)
 {
@@ -388,8 +409,30 @@ public:
     uint32_t cacheReadSize(uint64_t) override { return 0; }
     bool cacheRead(uint64_t, void*, uint32_t) override { return false; }
     void cacheWrite(uint64_t, const void*, uint32_t) override {}
-    void screenShot(const char*, uint32_t, uint32_t, uint32_t, const void*, uint32_t, bool) override
+    void screenShot(const char*, uint32_t width, uint32_t height, uint32_t pitch, const void* data,
+                    uint32_t size, bool y_flip) override
     {
+#if defined(RMLUI_BGFX_SAMPLE_TEST_HOOKS)
+        if (!data || width == 0 || height == 0 || pitch < width * 4u || size < pitch * height) {
+            return;
+        }
+        BackendTest::Screenshot screenshot;
+        screenshot.width = width;
+        screenshot.height = height;
+        screenshot.pitch = pitch;
+        screenshot.y_flip = y_flip;
+        const auto* bytes = static_cast<const std::uint8_t*>(data);
+        screenshot.bgra8.assign(bytes, bytes + size);
+        std::scoped_lock lock(screenshot_mutex);
+        captured_screenshot = std::move(screenshot);
+#else
+        (void)width;
+        (void)height;
+        (void)pitch;
+        (void)data;
+        (void)size;
+        (void)y_flip;
+#endif
     }
     void captureBegin(uint32_t, uint32_t, uint32_t, bgfx::TextureFormat::Enum, bool) override {}
     void captureEnd() override {}
@@ -694,7 +737,7 @@ bool Backend::Initialize(const char* window_name, int width, int height, bool al
 
     rmlui_bgfx::RendererConfig config;
     config.surface = surface;
-    config.views = rmlui_bgfx::ViewRange{0, 255};
+    config.views = rmlui_bgfx::ViewRange{view_begin_from_env(), 255};
     config.shaders = &data->shaders;
     config.textures = &data->textures;
     config.diagnostics = &data->diagnostics;
@@ -705,6 +748,7 @@ bool Backend::Initialize(const char* window_name, int width, int height, bool al
     config.trace_filter_pipeline = trace_filter_pipeline_from_env();
     config.trace_options = trace_options_from_env();
     config.bounded_transform_layers = bounded_transform_layers_from_env();
+    config.preserve_backbuffer = env_flag_enabled("RMLUI_BGFX_PRESERVE_BACKBUFFER");
     data->fps_limit = fps_limit_from_env();
 
     data->render_interface = std::make_unique<rmlui_bgfx::RenderInterface>(config);
@@ -720,6 +764,34 @@ bool Backend::Initialize(const char* window_name, int width, int height, bool al
     Rml::SetTextInputHandler(&data->text_input_method_editor);
     return true;
 }
+
+#if defined(RMLUI_BGFX_SAMPLE_TEST_HOOKS)
+namespace BackendTest {
+
+void ResetScreenshot()
+{
+    std::scoped_lock lock(screenshot_mutex);
+    captured_screenshot.reset();
+}
+
+bool TakeScreenshot(Screenshot& out)
+{
+    std::scoped_lock lock(screenshot_mutex);
+    if (!captured_screenshot)
+        return false;
+    out = std::move(*captured_screenshot);
+    captured_screenshot.reset();
+    return true;
+}
+
+rmlui_bgfx::SurfaceMetrics GetSurfaceMetrics()
+{
+    RMLUI_ASSERT(data && data->window);
+    return query_surface(data->window);
+}
+
+} // namespace BackendTest
+#endif
 
 void Backend::Shutdown()
 {

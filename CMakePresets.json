@@ -80,6 +80,18 @@
       "output": {
         "outputOnFailure": true
       }
+    },
+    {
+      "name": "linux-samples",
+      "configurePreset": "linux-samples",
+      "filter": {
+        "include": {
+          "label": "preserve-backbuffer"
+        }
+      },
+      "output": {
+        "outputOnFailure": true
+      }
     }
   ]
 }

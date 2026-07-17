@@ -12,6 +12,10 @@ endif()
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(RmlUiBgfxShaders)
 
+if(RMLUI_BGFX_BUILD_TESTS OR RMLUI_BGFX_BUILD_SAMPLES)
+    include(CTest)
+endif()
+
 if(NOT TARGET bgfx::bgfx)
     find_package(bgfx CONFIG REQUIRED)
 endif()
@@ -97,7 +101,6 @@ target_compile_definitions(rmlui_bgfx PUBLIC
 )
 
 if(RMLUI_BGFX_BUILD_TESTS)
-    include(CTest)
     if(BUILD_TESTING)
         find_package(Catch2 3 CONFIG REQUIRED)
         include(Catch)

@@ -60,6 +60,8 @@ jobs:
             python3 \
             tar \
             unzip \
+            xauth \
+            xvfb \
             zip
 
       - name: Restore vcpkg binary cache
@@ -90,3 +92,6 @@ jobs:
 
       - name: Build samples
         run: cmake --build --preset samples-all --parallel 2
+
+      - name: Run preserve-backbuffer GPU readbacks
+        run: xvfb-run -a -s "-screen 0 1280x720x24" ctest --preset linux-samples

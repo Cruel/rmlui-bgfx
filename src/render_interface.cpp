@@ -233,6 +233,7 @@ struct RenderInterface::Impl {
           reference_msaa_samples(config.reference_msaa_samples),
           trace_filter_pipeline(config.trace_filter_pipeline),
           bounded_transform_layers(config.bounded_transform_layers),
+          preserve_backbuffer(config.preserve_backbuffer),
           trace(config.render_path, normalized_trace_options(config)),
           pass_builder(config.views.begin, config.views.end, &perf),
           perf_logging_enabled(config.enable_perf_logging)
@@ -1256,7 +1257,8 @@ struct RenderInterface::Impl {
             reference_msaa_samples == 8 || reference_msaa_samples == 16;
         const auto policy = choose_base_presentation_policy(
             !base_direct_compatibility_enabled && !layer_msaa_requested, direct_mode_capable,
-            root_requires_preservation, stencil_capable, webgl_feedback_sensitive);
+            root_requires_preservation || preserve_backbuffer, stencil_capable,
+            webgl_feedback_sensitive);
         direct_base_requested = policy.mode == BasePresentationMode::DirectToBackbuffer;
         direct_base_fallback_reason = policy.fallback_reason;
         if (direct_base_requested) {
@@ -1455,6 +1457,7 @@ struct RenderInterface::Impl {
         context.geometry_layout = &layout;
         context.reference_msaa_samples = reference_msaa_samples;
         context.trace = trace_filter_pipeline;
+        context.preserve_backbuffer = preserve_backbuffer;
         return context;
     }
 
@@ -2100,6 +2103,7 @@ struct RenderInterface::Impl {
     uint8_t reference_msaa_samples = 2;
     bool trace_filter_pipeline = false;
     bool bounded_transform_layers = false;
+    bool preserve_backbuffer = false;
 
     // Cached stencil format (probed once to avoid getInternalformatParameter spam).
     mutable bool stencil_cached = false;
@@ -2262,9 +2266,11 @@ void RenderInterface::end_frame()
                         texture_region(base->color, base->bounds.framebuffer,
                                        full_local_rect(*base), base->texture_width,
                                        base->texture_height),
-                        BGFX_INVALID_HANDLE, Rml::BlendMode::Replace, ScissorState{false, {}},
-                        false, 1, RmlUiPassKind::FinalComposite, RmlUiPassReason::FinalComposite,
-                        "RmlUi.FinalComposite",
+                        BGFX_INVALID_HANDLE,
+                        m_impl->preserve_backbuffer ? Rml::BlendMode::Blend
+                                                    : Rml::BlendMode::Replace,
+                        ScissorState{false, {}}, false, 1, RmlUiPassKind::FinalComposite,
+                        RmlUiPassReason::FinalComposite, "RmlUi.FinalComposite",
                         LocalFbRect{0, 0, m_impl->width, m_impl->height}))) {
                     m_impl->fail_frame("end_frame final composite failed");
                 }

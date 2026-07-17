@@ -81,6 +81,15 @@ cmake --preset linux-samples \
 cmake --build --preset samples-all
 ```
 
+The sample build also includes GPU readbacks for `RendererConfig::preserve_backbuffer`. They clear
+the real backbuffer to a sentinel color, render a half-transparent RmlUi document, and verify both
+the transparent and opaque regions with the option enabled and disabled on the reference and
+optimized render paths. On a headless Linux host, run them under Xvfb:
+
+```sh
+xvfb-run -a -s "-screen 0 1280x720x24" ctest --preset linux-samples
+```
+
 The build creates sample executables under:
 
 ```text

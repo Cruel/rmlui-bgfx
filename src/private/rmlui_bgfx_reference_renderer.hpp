@@ -76,6 +76,7 @@ struct ReferenceRendererContext {
     const bgfx::VertexLayout* geometry_layout = nullptr;
     uint8_t reference_msaa_samples = 2;
     bool trace = false;
+    bool preserve_backbuffer = false;
 };
 
 struct ReferenceLayer {

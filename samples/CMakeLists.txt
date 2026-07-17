@@ -197,6 +197,42 @@ if(RMLUI_FONT_ENGINE_ENABLED AND NOT TARGET rmlui_bgfx_sample_effects_probe_gl3)
     target_link_libraries(rmlui_bgfx_sample_effects_probe_gl3 PRIVATE rmlui_shell_gl3)
 endif()
 
+if(BUILD_TESTING AND NOT TARGET rmlui_bgfx_preserve_backbuffer_readback)
+    add_executable(rmlui_bgfx_preserve_backbuffer_readback
+        "${CMAKE_CURRENT_LIST_DIR}/preserve_backbuffer_readback.cpp"
+    )
+    set_common_target_options(rmlui_bgfx_preserve_backbuffer_readback)
+    target_compile_definitions(rmlui_bgfx_preserve_backbuffer_readback PRIVATE
+        RMLUI_BGFX_SAMPLE_TEST_HOOKS=1
+    )
+    target_link_libraries(rmlui_bgfx_preserve_backbuffer_readback PRIVATE
+        rmlui_backend_SDL_BGFX
+        rmlui_core
+    )
+    add_dependencies(rmlui_bgfx_preserve_backbuffer_readback rmlui_bgfx_sample_shaders)
+
+    foreach(_render_path IN ITEMS reference optimized)
+        foreach(_preserve IN ITEMS 0 1)
+            if(_preserve)
+                set(_preserve_name enabled)
+            else()
+                set(_preserve_name disabled)
+            endif()
+            set(_test_name
+                "rmlui_bgfx_preserve_backbuffer_${_render_path}_${_preserve_name}")
+            add_test(NAME "${_test_name}"
+                COMMAND rmlui_bgfx_preserve_backbuffer_readback
+                    --render-path "${_render_path}"
+                    --preserve "${_preserve}"
+            )
+            set_tests_properties("${_test_name}" PROPERTIES
+                LABELS "gpu;readback;preserve-backbuffer"
+                TIMEOUT 30
+            )
+        endforeach()
+    endforeach()
+endif()
+
 set(PROJECT_SOURCE_DIR "${_saved_project_source_dir}")
 
 set(_rmlui_bgfx_sample_targets
@@ -210,6 +246,7 @@ set(_rmlui_bgfx_sample_targets
     rmlui_bgfx_sample_effects
     rmlui_bgfx_sample_effects_probe
     rmlui_bgfx_sample_effects_probe_gl3
+    rmlui_bgfx_preserve_backbuffer_readback
     rmlui_bgfx_sample_harfbuzz
     rmlui_bgfx_sample_invaders
     rmlui_bgfx_sample_load_document

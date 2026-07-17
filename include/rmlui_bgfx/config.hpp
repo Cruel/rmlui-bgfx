@@ -250,6 +250,10 @@ struct RendererConfig {
     bool trace_filter_pipeline = false;
     TraceOptions trace_options;
     bool bounded_transform_layers = true;
+    // Preserve color already rendered to the destination backbuffer and composite the RmlUi root
+    // over it. Offscreen child layers still clear normally. This is intended for applications
+    // that render an engine-owned scene before RmlUi overlays.
+    bool preserve_backbuffer = false;
 };
 
 } // namespace rmlui_bgfx
