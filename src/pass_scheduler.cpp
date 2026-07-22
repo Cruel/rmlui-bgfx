@@ -59,6 +59,8 @@ void RmlUiRenderPassScheduler::reset()
     m_passes.clear();
 }
 
+void RmlUiRenderPassScheduler::begin_segment() { m_current.reset(); }
+
 bool RmlUiRenderPassScheduler::can_reuse_current_pass(const RmlUiPassRequest& request) const
 {
     // bgfx view reuse is constrained by GL3 ordering semantics. Clears are barriers, and only

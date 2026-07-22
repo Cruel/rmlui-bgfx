@@ -1259,8 +1259,7 @@ struct RenderInterface::Impl {
         const auto policy = choose_base_presentation_policy(
             !base_direct_compatibility_enabled && !layer_msaa_requested, direct_mode_capable,
             root_requires_preservation || preserve_backbuffer || bgfx::isValid(output_framebuffer),
-            stencil_capable,
-            webgl_feedback_sensitive);
+            stencil_capable, webgl_feedback_sensitive);
         direct_base_requested = policy.mode == BasePresentationMode::DirectToBackbuffer;
         direct_base_fallback_reason = policy.fallback_reason;
         if (direct_base_requested) {
@@ -2196,53 +2195,57 @@ void RenderInterface::resize(const SurfaceMetrics& surface, FramebufferViewport 
 
 std::uint64_t RenderInterface::frame_index() const { return m_impl ? m_impl->frame_index : 0; }
 
-void RenderInterface::begin_frame()
+void RenderInterface::begin_frame_impl(bool reset_pass_scheduler)
 {
-    ++m_impl->frame_index;
-    m_impl->trace.begin_frame(m_impl->frame_index, m_impl->surface);
-    RenderTrace* frame_trace = &m_impl->trace;
+    auto& impl = *m_impl;
+    ++impl.frame_index;
+    impl.trace.begin_frame(impl.frame_index, impl.surface);
+    RenderTrace* frame_trace = &impl.trace;
     RMLUI_BGFX_TRACE(frame_trace, TraceCategory::Frame, "begin", "BeginFrame", {
-        line.field("logical_w", m_impl->logical_width);
-        line.field("logical_h", m_impl->logical_height);
-        line.field("framebuffer_w", m_impl->width);
-        line.field("framebuffer_h", m_impl->height);
-        line.field("scale_x", m_impl->surface.scale_x);
-        line.field("scale_y", m_impl->surface.scale_y);
+        line.field("logical_w", impl.logical_width);
+        line.field("logical_h", impl.logical_height);
+        line.field("framebuffer_w", impl.width);
+        line.field("framebuffer_h", impl.height);
+        line.field("scale_x", impl.surface.scale_x);
+        line.field("scale_y", impl.surface.scale_y);
     });
-    m_impl->pass_builder.begin_frame(m_impl->width, m_impl->height, m_impl->viewport.x,
-                                     m_impl->viewport.y);
-    m_impl->transform_valid = false;
-    m_impl->scissor_enabled = false;
-    m_impl->scissor_region =
-        Rml::Rectanglei::FromPositionSize({0, 0}, {m_impl->width, m_impl->height});
+    impl.pass_builder.begin_frame(impl.width, impl.height, impl.viewport.x, impl.viewport.y,
+                                  reset_pass_scheduler);
+    impl.transform_valid = false;
+    impl.scissor_enabled = false;
+    impl.scissor_region = Rml::Rectanglei::FromPositionSize({0, 0}, {impl.width, impl.height});
 
-    if (m_impl->render_path == RenderPath::Reference) {
-        m_impl->release_deferred_geometries();
-        m_impl->perf.reset();
-        m_impl->frame_failed = false;
-        m_impl->direct_base_presented = false;
-        m_impl->direct_base_fallback_reason = nullptr;
-        m_impl->reference_renderer.set_context(m_impl->reference_context());
-        m_impl->reference_renderer.begin_frame(m_impl->surface, m_impl->depth_stencil_format());
+    if (impl.render_path == RenderPath::Reference) {
+        impl.release_deferred_geometries();
+        impl.perf.reset();
+        impl.frame_failed = false;
+        impl.direct_base_presented = false;
+        impl.direct_base_fallback_reason = nullptr;
+        impl.reference_renderer.set_context(impl.reference_context());
+        impl.reference_renderer.begin_frame(impl.surface, impl.depth_stencil_format());
         return;
     }
 
     // Saved masks reference postprocess target generations. Clear them at optimized frame start so
     // frame-scoped bounded targets destroyed by BgfxTargetCache::begin_frame() cannot be sampled by
     // stale mask-image filter records.
-    m_impl->saved_masks.clear();
+    impl.saved_masks.clear();
 
-    if (!m_impl->begin_base_layer())
+    if (!impl.begin_base_layer())
         return;
-    LayerRecord* base = m_impl->current_layer();
+    LayerRecord* base = impl.current_layer();
     if (!base)
         return;
-    auto pass = m_impl->pass_builder.base_clear(base->framebuffer, m_impl->width, m_impl->height);
+    auto pass = impl.pass_builder.base_clear(base->framebuffer, impl.width, impl.height);
     if (pass) {
-        m_impl->perf.add_clear(uint64_t(m_impl->width) * uint64_t(m_impl->height), true);
+        impl.perf.add_clear(uint64_t(impl.width) * uint64_t(impl.height), true);
         bgfx::touch(pass->view);
     }
 }
+
+void RenderInterface::begin_frame() { begin_frame_impl(true); }
+
+void RenderInterface::begin_frame_continuation() { begin_frame_impl(false); }
 
 void RenderInterface::end_frame()
 {

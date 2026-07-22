@@ -19,7 +19,7 @@ public:
     void set_perf_counters(PerfCounters* perf);
     void set_trace(RenderTrace* trace);
     void begin_frame(int framebuffer_width, int framebuffer_height, int viewport_x = 0,
-                     int viewport_y = 0);
+                     int viewport_y = 0, bool reset_scheduler = true);
 
     [[nodiscard]] std::optional<RmlUiPass>
     geometry(bgfx::FrameBufferHandle target, int width, int height,

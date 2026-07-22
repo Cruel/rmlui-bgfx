@@ -52,13 +52,16 @@ void BgfxPassBuilder::set_perf_counters(PerfCounters* perf) { m_perf = perf; }
 void BgfxPassBuilder::set_trace(RenderTrace* trace) { m_trace = trace; }
 
 void BgfxPassBuilder::begin_frame(int framebuffer_width, int framebuffer_height, int viewport_x,
-                                  int viewport_y)
+                                  int viewport_y, bool reset_scheduler)
 {
     m_framebuffer_width = std::max(framebuffer_width, 1);
     m_framebuffer_height = std::max(framebuffer_height, 1);
     m_viewport_x = std::max(viewport_x, 0);
     m_viewport_y = std::max(viewport_y, 0);
-    m_scheduler.reset();
+    if (reset_scheduler)
+        m_scheduler.reset();
+    else
+        m_scheduler.begin_segment();
 }
 
 std::optional<RmlUiPass> BgfxPassBuilder::geometry(bgfx::FrameBufferHandle target, int width,

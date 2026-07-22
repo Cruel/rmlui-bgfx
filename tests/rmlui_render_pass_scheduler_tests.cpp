@@ -112,3 +112,19 @@ TEST_CASE("RmlUi pass scheduler reports exhaustion without reusing final view")
     CHECK(scheduler.exhausted());
     CHECK(scheduler.passes().size() == 2);
 }
+
+TEST_CASE("RmlUi pass scheduler continues view allocation across renderer segments")
+{
+    RmlUiRenderPassScheduler scheduler(32, 36);
+    const auto first =
+        scheduler.acquire(request(RmlUiPassKind::Geometry, 7, false, false, "first"));
+    REQUIRE(first);
+    CHECK(first->view == 32);
+
+    scheduler.begin_segment();
+    const auto second =
+        scheduler.acquire(request(RmlUiPassKind::Geometry, 7, false, false, "second"));
+    REQUIRE(second);
+    CHECK(second->view == 33);
+    CHECK(scheduler.passes().size() == 2);
+}

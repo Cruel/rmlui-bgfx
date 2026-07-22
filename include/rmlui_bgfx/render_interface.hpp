@@ -1,5 +1,7 @@
 #pragma once
 
+#define RMLUI_BGFX_HAS_FRAME_CONTINUATION 1
+
 #include <rmlui_bgfx/config.hpp>
 
 #include <RmlUi/Core/RenderInterface.h>
@@ -19,6 +21,7 @@ public:
     void resize(const SurfaceMetrics& surface);
     void resize(const SurfaceMetrics& surface, FramebufferViewport viewport);
     void begin_frame();
+    void begin_frame_continuation();
     void end_frame();
     [[nodiscard]] std::uint64_t frame_index() const;
     void set_perf_logging_enabled(bool enabled);
@@ -61,6 +64,7 @@ public:
     void ReleaseShader(Rml::CompiledShaderHandle shader) override;
 
 private:
+    void begin_frame_impl(bool reset_pass_scheduler);
     struct Impl;
     std::unique_ptr<Impl> m_impl;
 };

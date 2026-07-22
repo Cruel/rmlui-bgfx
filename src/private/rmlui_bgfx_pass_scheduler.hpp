@@ -69,6 +69,7 @@ public:
     RmlUiRenderPassScheduler(RmlUiViewId begin, RmlUiViewId end);
 
     void reset();
+    void begin_segment();
     [[nodiscard]] std::optional<RmlUiPass> acquire(const RmlUiPassRequest& request);
     [[nodiscard]] bool exhausted() const { return m_exhausted; }
     [[nodiscard]] const char* error() const { return m_error.c_str(); }
