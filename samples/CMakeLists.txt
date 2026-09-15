@@ -40,19 +40,11 @@ else()
 endif()
 list(GET _sample_variants 0 _sample_runtime_variant)
 
-rmlui_bgfx_find_shader_tools(OUT_SHADERC _shaderc OUT_BGFX_INCLUDE _bgfx_shader_include)
-if(NOT _bgfx_shader_include AND VCPKG_INSTALLED_DIR AND VCPKG_TARGET_TRIPLET)
-    set(_candidate_bgfx_include "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/include/bgfx")
-    if(EXISTS "${_candidate_bgfx_include}/bgfx_shader.sh")
-        set(_bgfx_shader_include "${_candidate_bgfx_include}")
-    endif()
-endif()
-if(NOT _shaderc OR NOT EXISTS "${_shaderc}")
-    message(FATAL_ERROR "shaderc host executable not found. Set RMLUI_BGFX_SHADERC_EXECUTABLE or SHADERC, or install bgfx[tools].")
-endif()
-if(NOT _bgfx_shader_include OR NOT EXISTS "${_bgfx_shader_include}/bgfx_shader.sh")
-    message(FATAL_ERROR "bgfx_shader.sh not found. Set RMLUI_BGFX_BGFX_SHADER_INCLUDE_DIR to the bgfx shader include directory.")
-endif()
+rmlui_bgfx_find_shader_tools(
+    REQUIRED
+    OUT_SHADERC _shaderc
+    OUT_BGFX_INCLUDE _bgfx_shader_include
+)
 set(_sample_shader_output_root "${CMAKE_CURRENT_BINARY_DIR}/runtime-assets")
 rmlui_bgfx_add_shader_target(
     TARGET rmlui_bgfx_sample_shaders

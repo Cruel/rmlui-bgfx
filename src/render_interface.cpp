@@ -1580,8 +1580,10 @@ struct RenderInterface::Impl {
             sample_region = Rml::Rectanglei::FromPositionSize({region.Left(), sample_top},
                                                               {region.Width(), region.Height()});
         }
-        const bool can_blit = !flip_y && bgfx::getCaps() &&
-                              (bgfx::getCaps()->supported & BGFX_CAPS_TEXTURE_BLIT) != 0;
+        const bool can_blit =
+            !flip_y && bgfx::isTextureValid(0, false, 1, bgfx::TextureFormat::RGBA8,
+                                            BGFX_TEXTURE_BLIT_DST | BGFX_SAMPLER_U_CLAMP |
+                                                BGFX_SAMPLER_V_CLAMP);
         const uint64_t flags = (can_blit ? BGFX_TEXTURE_BLIT_DST : BGFX_TEXTURE_RT) |
                                BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP;
         bgfx::TextureHandle texture =

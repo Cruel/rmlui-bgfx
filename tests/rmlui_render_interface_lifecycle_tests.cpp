@@ -23,9 +23,9 @@ public:
     {
         bgfx::Init init;
         init.type = bgfx::RendererType::Noop;
-        init.resolution.width = 64;
-        init.resolution.height = 64;
-        init.resolution.reset = BGFX_RESET_NONE;
+        init.swapChain.width = 64;
+        init.swapChain.height = 64;
+        init.reset = BGFX_RESET_NONE;
         m_initialized = bgfx::init(init);
     }
 

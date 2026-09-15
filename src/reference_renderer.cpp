@@ -863,7 +863,8 @@ ReferenceTarget* BgfxReferenceRenderer::ensure_target(PostprocessTargetKind kind
         }
     }
     uint64_t flags = kReferenceColorTargetFlags;
-    if (bgfx::getCaps() && (bgfx::getCaps()->supported & BGFX_CAPS_TEXTURE_BLIT) != 0) {
+    if (bgfx::isTextureValid(0, false, 1, bgfx::TextureFormat::RGBA8,
+                             flags | BGFX_TEXTURE_BLIT_DST)) {
         flags |= BGFX_TEXTURE_BLIT_DST;
     }
     bgfx::TextureHandle color = bgfx::createTexture2D(uint16_t(clamped.w), uint16_t(clamped.h),
@@ -1550,7 +1551,9 @@ bgfx::TextureHandle BgfxReferenceRenderer::copy_region_to_texture(bgfx::TextureH
                                                           {region.Width(), region.Height()});
     }
     const bool can_blit =
-        !flip_y && bgfx::getCaps() && (bgfx::getCaps()->supported & BGFX_CAPS_TEXTURE_BLIT) != 0;
+        !flip_y && bgfx::isTextureValid(0, false, 1, bgfx::TextureFormat::RGBA8,
+                                        BGFX_TEXTURE_BLIT_DST | BGFX_SAMPLER_U_CLAMP |
+                                            BGFX_SAMPLER_V_CLAMP);
     trace("copy_region name=%s source_tex=%u source_size=%dx%d region=(%d,%d %dx%d) sample=(%d,%d "
           "%dx%d) flip_y=%d origin_bl=%d method=%s",
           name ? name : "<null>", bgfx::isValid(source) ? source.idx : 65535u, source_width,

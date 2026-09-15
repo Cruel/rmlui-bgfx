@@ -102,8 +102,10 @@ TargetDescriptor BgfxTargetCache::make_postprocess_target_descriptor(
                             0,
                             false,
                             true,
-                            bgfx::getCaps() &&
-                                (bgfx::getCaps()->supported & BGFX_CAPS_TEXTURE_BLIT) != 0,
+                            bgfx::isTextureValid(
+                                0, false, 1, bgfx::TextureFormat::RGBA8,
+                                BGFX_TEXTURE_RT | BGFX_TEXTURE_BLIT_DST |
+                                    BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP),
                             0,
                             "RmlUi.PostprocessTarget",
                             target_is_full_frame ? "full-frame viewport postprocess"

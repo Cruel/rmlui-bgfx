@@ -35,7 +35,7 @@ RmlUi's `decorator: shader("name")` syntax passes a shader name to the render in
 #include <rmlui_bgfx/precompiled_material_shader_provider.hpp>
 
 rmlui_bgfx::PrecompiledMaterialShaderProviderConfig material_config;
-material_config.root_directory = "assets/shaders/bgfx/glsl-120";
+material_config.root_directory = "assets/shaders/bgfx/glsl-330";
 
 rmlui_bgfx::PrecompiledMaterialShaderProvider material_shaders(material_config);
 material_shaders.register_shader("panel_noise", "material_panel_noise");

@@ -11,7 +11,7 @@
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
         "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
         "VCPKG_MANIFEST_DIR": "${sourceDir}",
-        "VCPKG_MANIFEST_FEATURES": "tests;shader-tools",
+        "VCPKG_MANIFEST_FEATURES": "tests",
         "VCPKG_INSTALLED_DIR": "${sourceDir}/build/linux-debug/vcpkg_installed",
         "RMLUI_BGFX_BUILD_TESTS": "ON",
         "RMLUI_BGFX_ENABLE_RENDER_PERF": "ON"
@@ -27,7 +27,7 @@
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
         "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
         "VCPKG_MANIFEST_DIR": "${sourceDir}",
-        "VCPKG_MANIFEST_FEATURES": "tests;shader-tools",
+        "VCPKG_MANIFEST_FEATURES": "tests",
         "VCPKG_INSTALLED_DIR": "${sourceDir}/build/linux-release/vcpkg_installed",
         "RMLUI_BGFX_BUILD_TESTS": "ON"
       }
@@ -42,7 +42,7 @@
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
         "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
         "VCPKG_MANIFEST_DIR": "${sourceDir}",
-        "VCPKG_MANIFEST_FEATURES": "shader-tools;samples",
+        "VCPKG_MANIFEST_FEATURES": "samples",
         "VCPKG_INSTALLED_DIR": "${sourceDir}/build/linux-samples/vcpkg_installed",
         "RMLUI_BGFX_BUILD_TESTS": "OFF",
         "RMLUI_BGFX_BUILD_SAMPLES": "ON"

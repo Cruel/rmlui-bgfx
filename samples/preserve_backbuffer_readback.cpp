@@ -43,7 +43,7 @@ struct Pixel {
                              std::uint32_t y)
 {
     if (screenshot.width == 0 || screenshot.height == 0 || screenshot.pitch == 0 ||
-        screenshot.bgra8.empty()) {
+        screenshot.pixels.empty()) {
         return {};
     }
     x = std::min(x, screenshot.width - 1);
@@ -51,10 +51,17 @@ struct Pixel {
     if (screenshot.y_flip)
         y = screenshot.height - 1 - y;
     const std::size_t offset = std::size_t(y) * screenshot.pitch + std::size_t(x) * 4u;
-    if (offset + 3 >= screenshot.bgra8.size())
+    if (offset + 3 >= screenshot.pixels.size())
         return {};
-    return {screenshot.bgra8[offset + 2], screenshot.bgra8[offset + 1], screenshot.bgra8[offset],
-            screenshot.bgra8[offset + 3]};
+    if (screenshot.format == bgfx::TextureFormat::RGBA8) {
+        return {screenshot.pixels[offset], screenshot.pixels[offset + 1],
+                screenshot.pixels[offset + 2], screenshot.pixels[offset + 3]};
+    }
+    if (screenshot.format == bgfx::TextureFormat::BGRA8) {
+        return {screenshot.pixels[offset + 2], screenshot.pixels[offset + 1],
+                screenshot.pixels[offset], screenshot.pixels[offset + 3]};
+    }
+    return {};
 }
 
 void print_pixel(const char* label, Pixel pixel)
@@ -145,7 +152,7 @@ body {
     BackendTest::Screenshot screenshot;
     BackendTest::ResetScreenshot();
     bool screenshot_requested = false;
-    for (int frame = 0; frame < 30 && screenshot.bgra8.empty(); ++frame) {
+    for (int frame = 0; frame < 30 && screenshot.pixels.empty(); ++frame) {
         context->Update();
         Backend::BeginFrame();
 
@@ -161,12 +168,12 @@ body {
         }
         Backend::PresentFrame();
         (void)BackendTest::TakeScreenshot(screenshot);
-        if (screenshot.bgra8.empty())
+        if (screenshot.pixels.empty())
             SDL_Delay(5);
     }
 
     int result = 0;
-    if (screenshot.bgra8.empty()) {
+    if (screenshot.pixels.empty()) {
         std::fprintf(stderr, "No bgfx screenshot callback was received\n");
         result = 1;
     } else {

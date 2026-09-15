@@ -17,7 +17,6 @@
 #include <SDL3/SDL.h>
 
 #include <bgfx/bgfx.h>
-#include <bgfx/platform.h>
 
 #define STB_IMAGE_STATIC
 #define STB_IMAGE_IMPLEMENTATION
@@ -409,8 +408,9 @@ public:
     uint32_t cacheReadSize(uint64_t) override { return 0; }
     bool cacheRead(uint64_t, void*, uint32_t) override { return false; }
     void cacheWrite(uint64_t, const void*, uint32_t) override {}
-    void screenShot(const char*, uint32_t width, uint32_t height, uint32_t pitch, const void* data,
-                    uint32_t size, bool y_flip) override
+    void screenShot(const char*, uint32_t width, uint32_t height, uint32_t pitch,
+                    bgfx::TextureFormat::Enum format, const void* data, uint32_t size,
+                    bool y_flip) override
     {
 #if defined(RMLUI_BGFX_SAMPLE_TEST_HOOKS)
         if (!data || width == 0 || height == 0 || pitch < width * 4u || size < pitch * height) {
@@ -420,15 +420,17 @@ public:
         screenshot.width = width;
         screenshot.height = height;
         screenshot.pitch = pitch;
+        screenshot.format = format;
         screenshot.y_flip = y_flip;
         const auto* bytes = static_cast<const std::uint8_t*>(data);
-        screenshot.bgra8.assign(bytes, bytes + size);
+        screenshot.pixels.assign(bytes, bytes + size);
         std::scoped_lock lock(screenshot_mutex);
         captured_screenshot = std::move(screenshot);
 #else
         (void)width;
         (void)height;
         (void)pitch;
+        (void)format;
         (void)data;
         (void)size;
         (void)y_flip;
@@ -557,15 +559,17 @@ public:
     return rmlui_bgfx::sanitize_surface_metrics(metrics);
 }
 
-[[nodiscard]] bool query_native_window(SDL_Window* window, bgfx::PlatformData& platform_data)
+[[nodiscard]] bool query_native_window(SDL_Window* window, bgfx::PlatformData& platform_data,
+                                       bgfx::SwapChain& swap_chain)
 {
 #if defined(SDL_PLATFORM_LINUX)
     SDL_PropertiesID props = SDL_GetWindowProperties(window);
-    platform_data.ndt = SDL_GetPointerProperty(props, SDL_PROP_WINDOW_X11_DISPLAY_POINTER, nullptr);
+    swap_chain.ndt = SDL_GetPointerProperty(props, SDL_PROP_WINDOW_X11_DISPLAY_POINTER, nullptr);
     const std::uint64_t x11_window =
         SDL_GetNumberProperty(props, SDL_PROP_WINDOW_X11_WINDOW_NUMBER, 0);
-    if (platform_data.ndt && x11_window != 0) {
-        platform_data.nwh = reinterpret_cast<void*>(static_cast<std::uintptr_t>(x11_window));
+    if (swap_chain.ndt && x11_window != 0) {
+        swap_chain.nwh = reinterpret_cast<void*>(static_cast<std::uintptr_t>(x11_window));
+        platform_data.type = bgfx::NativeWindowHandleType::Default;
         return true;
     }
     Rml::Log::Message(Rml::Log::LT_ERROR,
@@ -573,11 +577,11 @@ public:
     return false;
 #elif defined(SDL_PLATFORM_ANDROID)
     SDL_PropertiesID props = SDL_GetWindowProperties(window);
-    platform_data.nwh =
+    swap_chain.nwh =
         SDL_GetPointerProperty(props, SDL_PROP_WINDOW_ANDROID_WINDOW_POINTER, nullptr);
-    return platform_data.nwh != nullptr;
+    return swap_chain.nwh != nullptr;
 #else
-    platform_data.nwh = window;
+    swap_chain.nwh = window;
     return true;
 #endif
 }
@@ -612,8 +616,13 @@ void resize_backend(SDL_Window* window)
     if (!data || !data->render_interface)
         return;
     const rmlui_bgfx::SurfaceMetrics surface = query_surface(window);
-    bgfx::reset(static_cast<std::uint32_t>(surface.framebuffer_width),
-                static_cast<std::uint32_t>(surface.framebuffer_height), BGFX_RESET_VSYNC);
+    bgfx::PlatformData platform_data{};
+    bgfx::SwapChain swap_chain{};
+    if (!query_native_window(window, platform_data, swap_chain))
+        return;
+    swap_chain.width = static_cast<std::uint32_t>(surface.framebuffer_width);
+    swap_chain.height = static_cast<std::uint32_t>(surface.framebuffer_height);
+    bgfx::reset(BGFX_RESET_VSYNC, &swap_chain);
     data->render_interface->resize(surface);
 }
 
@@ -683,8 +692,8 @@ bool Backend::Initialize(const char* window_name, int width, int height, bool al
         return false;
     }
 
-    bgfx::PlatformData platform_data{};
-    if (!query_native_window(window, platform_data)) {
+    bgfx::Init init;
+    if (!query_native_window(window, init.platformData, init.swapChain)) {
         SDL_DestroyWindow(window);
         SDL_Quit();
         return false;
@@ -696,13 +705,11 @@ bool Backend::Initialize(const char* window_name, int width, int height, bool al
     const bool debug_overlay_enabled = debug_overlay_from_env();
     static SampleBgfxCallback bgfx_callback(bgfx_debug_enabled);
 
-    bgfx::Init init;
     init.type = bgfx::RendererType::OpenGL;
     init.callback = &bgfx_callback;
-    init.platformData = platform_data;
-    init.resolution.width = static_cast<std::uint32_t>(surface.framebuffer_width);
-    init.resolution.height = static_cast<std::uint32_t>(surface.framebuffer_height);
-    init.resolution.reset = BGFX_RESET_VSYNC;
+    init.swapChain.width = static_cast<std::uint32_t>(surface.framebuffer_width);
+    init.swapChain.height = static_cast<std::uint32_t>(surface.framebuffer_height);
+    init.reset = BGFX_RESET_VSYNC;
     init.debug = bgfx_debug_enabled;
 
     if (!bgfx::init(init)) {

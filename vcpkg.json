@@ -2,7 +2,6 @@
   "name": "rmlui-bgfx",
   "version-string": "0.1.0",
   "dependencies": [
-    "bgfx",
     {
       "name": "rmlui",
       "features": [
@@ -15,17 +14,6 @@
       "description": "Build rmlui-bgfx unit tests.",
       "dependencies": [
         "catch2"
-      ]
-    },
-    "shader-tools": {
-      "description": "Install bgfx shader compiler tools for regenerating shader binaries.",
-      "dependencies": [
-        {
-          "name": "bgfx",
-          "features": [
-            "tools"
-          ]
-        }
       ]
     },
     "samples": {

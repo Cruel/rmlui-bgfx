@@ -242,9 +242,13 @@ void BgfxDrawContext::submit_blit(const RmlUiPass& pass, bgfx::TextureHandle des
                                   bgfx::TextureHandle source,
                                   const Rml::Rectanglei& source_region) const
 {
-    bgfx::blit(pass.view, destination, 0, 0, source, uint16_t(source_region.Left()),
-               uint16_t(source_region.Top()), uint16_t(source_region.Width()),
-               uint16_t(source_region.Height()));
+    bgfx::TextureRegion destination_region;
+    destination_region.init(destination, 0, 0, uint16_t(source_region.Width()),
+                            uint16_t(source_region.Height()));
+    bgfx::TextureRegion source_texture_region;
+    source_texture_region.init(source, uint16_t(source_region.Left()), uint16_t(source_region.Top()),
+                               uint16_t(source_region.Width()), uint16_t(source_region.Height()));
+    bgfx::blit(pass.view, destination_region, source_texture_region);
 }
 
 bool BgfxDrawContext::submit_fullscreen_postprocess(
