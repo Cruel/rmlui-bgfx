@@ -11,6 +11,12 @@ The library owns only generic RmlUi/bgfx rendering code. Applications provide pl
 
 The renderer core does not depend on SDL, Lua, ImGui, any application asset manager, or an application-specific shader registry.
 
+`rmlui_bgfx::rmlui_bgfx` links only RmlUi's core target (`RmlUi::Core`). Optional RmlUi
+components are application policy: applications using the Lua bindings or native debugger must
+opt into them explicitly by linking `RmlUi::Lua` or `RmlUi::Debugger`, respectively. The renderer
+does not link the umbrella `RmlUi::RmlUi` target because doing so would pull optional components
+into applications that do not use them.
+
 ## Build and test the renderer
 
 ```sh

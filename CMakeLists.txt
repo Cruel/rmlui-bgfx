@@ -71,16 +71,14 @@ if(RMLUI_BGFX_BUILD_SAMPLES)
     add_subdirectory("${RMLUI_BGFX_RMLUI_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/rmlui-source" EXCLUDE_FROM_ALL)
 endif()
 
-if(NOT TARGET RmlUi::RmlUi AND NOT TARGET RmlUi::Core AND NOT RMLUI_BGFX_BUILD_SAMPLES)
+if(NOT TARGET RmlUi::Core AND NOT RMLUI_BGFX_BUILD_SAMPLES)
     find_package(RmlUi CONFIG REQUIRED)
 endif()
 
-if(TARGET RmlUi::RmlUi)
-    set(RMLUI_BGFX_RMLUI_TARGET RmlUi::RmlUi)
-elseif(TARGET RmlUi::Core)
-    set(RMLUI_BGFX_RMLUI_TARGET RmlUi::Core)
-else()
-    message(FATAL_ERROR "rmlui-bgfx requires RmlUi::RmlUi or RmlUi::Core")
+if(NOT TARGET RmlUi::Core)
+    message(FATAL_ERROR
+        "rmlui-bgfx requires RmlUi::Core. Lua and Debugger are optional RmlUi components and "
+        "must be linked explicitly by applications that use them.")
 endif()
 
 add_library(rmlui_bgfx STATIC
@@ -114,7 +112,7 @@ target_include_directories(rmlui_bgfx
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src/private
 )
-target_link_libraries(rmlui_bgfx PUBLIC bgfx::bgfx ${RMLUI_BGFX_RMLUI_TARGET})
+target_link_libraries(rmlui_bgfx PUBLIC bgfx::bgfx RmlUi::Core)
 if(TARGET bx::bx)
     target_link_libraries(rmlui_bgfx PUBLIC bx::bx)
 endif()
