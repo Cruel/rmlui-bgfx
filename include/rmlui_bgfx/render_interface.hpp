@@ -1,6 +1,7 @@
 #pragma once
 
 #define RMLUI_BGFX_HAS_FRAME_CONTINUATION 1
+#define RMLUI_BGFX_HAS_EXTERNAL_PASS_RESERVATION 1
 
 #include <rmlui_bgfx/config.hpp>
 
@@ -8,6 +9,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 
 namespace rmlui_bgfx {
 
@@ -22,6 +24,11 @@ public:
     void resize(const SurfaceMetrics& surface, FramebufferViewport viewport);
     void begin_frame();
     void begin_frame_continuation();
+    // Reserve and configure one pass from this renderer's view range for application-owned
+    // drawing. With `continue_view_range=true`, the reservation advances the same scheduler used
+    // by surrounding RmlUi context segments, so external work can be sequenced between complete
+    // RmlUi submissions without knowing their internal pass count.
+    [[nodiscard]] std::optional<bgfx::ViewId> reserve_external_pass(bool continue_view_range);
     void end_frame();
     [[nodiscard]] std::uint64_t frame_index() const;
     void set_perf_logging_enabled(bool enabled);

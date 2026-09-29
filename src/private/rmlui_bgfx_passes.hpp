@@ -40,6 +40,9 @@ public:
     [[nodiscard]] std::optional<RmlUiPass>
     postprocess(bgfx::FrameBufferHandle target, int width, int height, const char* name,
                 RmlUiPassReason reason = RmlUiPassReason::Other);
+    [[nodiscard]] std::optional<RmlUiPass> external(bgfx::FrameBufferHandle target, int width,
+                                                    int height,
+                                                    const char* name = "RmlUi.External");
 
     [[nodiscard]] bool exhausted() const;
     [[nodiscard]] const char* error() const;

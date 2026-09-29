@@ -2260,6 +2260,15 @@ void RenderInterface::begin_frame() { begin_frame_impl(true); }
 
 void RenderInterface::begin_frame_continuation() { begin_frame_impl(false); }
 
+std::optional<bgfx::ViewId> RenderInterface::reserve_external_pass(bool continue_view_range)
+{
+    auto& impl = *m_impl;
+    impl.pass_builder.begin_frame(impl.width, impl.height, impl.viewport.x, impl.viewport.y,
+                                  !continue_view_range);
+    auto pass = impl.pass_builder.external(impl.output_framebuffer, impl.width, impl.height);
+    return pass ? std::optional<bgfx::ViewId>{pass->view} : std::nullopt;
+}
+
 void RenderInterface::end_frame()
 {
     RenderTrace* frame_trace = &m_impl->trace;

@@ -138,6 +138,17 @@ std::optional<RmlUiPass> BgfxPassBuilder::postprocess(bgfx::FrameBufferHandle ta
                    target);
 }
 
+std::optional<RmlUiPass> BgfxPassBuilder::external(bgfx::FrameBufferHandle target, int width,
+                                                   int height, const char* name)
+{
+    // External work must never merge into the preceding RmlUi pass. It owns its reserved view and
+    // the following RmlUi segment must allocate after it.
+    m_scheduler.begin_segment();
+    return acquire(make_pass_request(RmlUiPassKind::Postprocess, 0, 0, false, false, width, height,
+                                     name, RmlUiPassReason::Other),
+                   target);
+}
+
 bool BgfxPassBuilder::exhausted() const { return m_scheduler.exhausted(); }
 
 const char* BgfxPassBuilder::error() const { return m_scheduler.error(); }

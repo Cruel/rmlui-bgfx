@@ -112,6 +112,42 @@ public:
 
 } // namespace
 
+TEST_CASE("RmlUi bgfx external pass reservations advance the shared view range")
+{
+    BgfxNoopScope bgfx;
+    REQUIRE(bgfx.initialized());
+
+    NullShaderProvider shaders;
+    NullTextureLoader textures;
+    CapturingDiagnostics diagnostics;
+
+    rmlui_bgfx::RendererConfig config;
+    config.surface = rmlui_bgfx::SurfaceMetrics{64, 64, 64, 64, 1.0f, 1.0f};
+    config.views = rmlui_bgfx::ViewRange{40, 42};
+    config.shaders = &shaders;
+    config.textures = &textures;
+    config.diagnostics = &diagnostics;
+
+    rmlui_bgfx::RenderInterface renderer(config);
+
+    const auto first = renderer.reserve_external_pass(false);
+    const auto second = renderer.reserve_external_pass(true);
+    const auto third = renderer.reserve_external_pass(true);
+    const auto exhausted = renderer.reserve_external_pass(true);
+
+    REQUIRE(first);
+    REQUIRE(second);
+    REQUIRE(third);
+    CHECK(*first == 40);
+    CHECK(*second == 41);
+    CHECK(*third == 42);
+    CHECK_FALSE(exhausted);
+
+    const auto reset = renderer.reserve_external_pass(false);
+    REQUIRE(reset);
+    CHECK(*reset == 40);
+}
+
 TEST_CASE("RmlUi target cache layer metadata generations are stable across compatible reuse")
 {
     BgfxNoopScope bgfx;
