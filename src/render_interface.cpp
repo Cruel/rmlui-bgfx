@@ -43,6 +43,7 @@ constexpr uint64_t kRmlBlendState =
     BGFX_STATE_BLEND_FUNC_SEPARATE(BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_INV_SRC_ALPHA,
                                    BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_INV_SRC_ALPHA);
 constexpr uint32_t kGradientStopLimit = 16;
+thread_local RenderInterface* g_active_render_interface = nullptr;
 
 TextureRegion texture_region(bgfx::TextureHandle texture, GlobalFbRect global_bounds,
                              LocalFbRect local_rect, int texture_width, int texture_height)
@@ -235,6 +236,8 @@ struct RenderInterface::Impl {
           bounded_transform_layers(config.bounded_transform_layers),
           output_framebuffer(config.output_framebuffer),
           preserve_backbuffer(config.preserve_backbuffer),
+          route_transient_geometry_to_active_renderer(
+              config.route_transient_geometry_to_active_renderer),
           trace(config.render_path, normalized_trace_options(config)),
           pass_builder(config.views.begin, config.views.end, &perf),
           perf_logging_enabled(config.enable_perf_logging)
@@ -2070,7 +2073,13 @@ struct RenderInterface::Impl {
     bgfx::UniformHandle mask_texcoord_transform_uniform = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle shadow_color_uniform = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle shadow_offset_uniform = BGFX_INVALID_HANDLE;
+    struct ForwardedGeometry {
+        RenderInterface* renderer = nullptr;
+        Rml::CompiledGeometryHandle handle = 0;
+    };
+
     std::unordered_map<Rml::CompiledGeometryHandle, GeometryRecord> geometries;
+    std::unordered_map<Rml::CompiledGeometryHandle, ForwardedGeometry> forwarded_geometries;
     std::unordered_set<Rml::CompiledGeometryHandle> deferred_geometry_release;
     std::unordered_map<Rml::TextureHandle, TextureRecord> textures;
     std::unordered_map<Rml::CompiledFilterHandle, FilterRecord> filters;
@@ -2109,6 +2118,7 @@ struct RenderInterface::Impl {
     bool bounded_transform_layers = false;
     bgfx::FrameBufferHandle output_framebuffer = BGFX_INVALID_HANDLE;
     bool preserve_backbuffer = false;
+    bool route_transient_geometry_to_active_renderer = false;
 
     // Cached stencil format (probed once to avoid getInternalformatParameter spam).
     mutable bool stencil_cached = false;
@@ -2199,6 +2209,7 @@ std::uint64_t RenderInterface::frame_index() const { return m_impl ? m_impl->fra
 
 void RenderInterface::begin_frame_impl(bool reset_pass_scheduler)
 {
+    g_active_render_interface = this;
     auto& impl = *m_impl;
     ++impl.frame_index;
     impl.trace.begin_frame(impl.frame_index, impl.surface);
@@ -2262,6 +2273,8 @@ void RenderInterface::end_frame()
     } else {
         if (m_impl->frame_failed) {
             m_impl->layer_system.begin_frame();
+            if (g_active_render_interface == this)
+                g_active_render_interface = nullptr;
             return;
         }
         if (m_impl->layer_stack.size() != 1) {
@@ -2370,11 +2383,23 @@ void RenderInterface::end_frame()
         line.field("direct_presented", m_impl->direct_base_presented);
         line.field("root_requires_preservation", m_impl->root_requires_preservation);
     });
+    if (g_active_render_interface == this)
+        g_active_render_interface = nullptr;
 }
 
 Rml::CompiledGeometryHandle RenderInterface::CompileGeometry(Rml::Span<const Rml::Vertex> vertices,
                                                              Rml::Span<const int> indices)
 {
+    if (m_impl->route_transient_geometry_to_active_renderer && g_active_render_interface &&
+        g_active_render_interface != this) {
+        const auto target_handle = g_active_render_interface->CompileGeometry(vertices, indices);
+        if (target_handle == 0)
+            return 0;
+        const Rml::CompiledGeometryHandle proxy_handle = ++m_impl->geometry_counter;
+        m_impl->forwarded_geometries.emplace(
+            proxy_handle, Impl::ForwardedGeometry{g_active_render_interface, target_handle});
+        return proxy_handle;
+    }
     if (vertices.size() > std::numeric_limits<uint32_t>::max() ||
         indices.size() > std::numeric_limits<uint32_t>::max()) {
         return 0;
@@ -2422,6 +2447,11 @@ Rml::CompiledGeometryHandle RenderInterface::CompileGeometry(Rml::Span<const Rml
 void RenderInterface::RenderGeometry(Rml::CompiledGeometryHandle geometry,
                                      Rml::Vector2f translation, Rml::TextureHandle texture)
 {
+    if (const auto forwarded = m_impl->forwarded_geometries.find(geometry);
+        forwarded != m_impl->forwarded_geometries.end()) {
+        forwarded->second.renderer->RenderGeometry(forwarded->second.handle, translation, texture);
+        return;
+    }
     auto it = m_impl->geometries.find(geometry);
     if (it == m_impl->geometries.end())
         return;
@@ -2438,6 +2468,12 @@ void RenderInterface::RenderGeometry(Rml::CompiledGeometryHandle geometry,
 
 void RenderInterface::ReleaseGeometry(Rml::CompiledGeometryHandle geometry)
 {
+    if (auto forwarded = m_impl->forwarded_geometries.find(geometry);
+        forwarded != m_impl->forwarded_geometries.end()) {
+        forwarded->second.renderer->ReleaseGeometry(forwarded->second.handle);
+        m_impl->forwarded_geometries.erase(forwarded);
+        return;
+    }
     if (auto it = m_impl->geometries.find(geometry); it != m_impl->geometries.end()) {
         if (m_impl->recorded_geometry_reference_exists(geometry) ||
             m_impl->reference_renderer.geometry_in_use(geometry)) {

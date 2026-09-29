@@ -298,6 +298,43 @@ TEST_CASE("RmlUi target cache keeps postprocess roles isolated at matching full-
     CHECK(target_cache.postprocess_targets().size() == 2);
 }
 
+TEST_CASE("RmlUi bgfx routes opted-in transient geometry to the active renderer")
+{
+    BgfxNoopScope bgfx;
+    REQUIRE(bgfx.initialized());
+
+    NullShaderProvider shaders;
+    NullTextureLoader textures;
+    CapturingDiagnostics diagnostics;
+
+    rmlui_bgfx::RendererConfig host_config;
+    host_config.surface = rmlui_bgfx::SurfaceMetrics{64, 64, 64, 64, 1.0f, 1.0f};
+    host_config.views = rmlui_bgfx::ViewRange{0, 16};
+    host_config.shaders = &shaders;
+    host_config.textures = &textures;
+    host_config.diagnostics = &diagnostics;
+    host_config.route_transient_geometry_to_active_renderer = true;
+
+    rmlui_bgfx::RendererConfig inspected_config = host_config;
+    inspected_config.views = rmlui_bgfx::ViewRange{16, 32};
+    inspected_config.route_transient_geometry_to_active_renderer = false;
+
+    rmlui_bgfx::RenderInterface host_renderer(host_config);
+    rmlui_bgfx::RenderInterface inspected_renderer(inspected_config);
+
+    inspected_renderer.begin_frame();
+    const Rml::CompiledGeometryHandle proxy = make_quad(host_renderer);
+    REQUIRE(proxy != 0);
+    host_renderer.RenderGeometry(proxy, {3.0f, 4.0f}, 0);
+    host_renderer.ReleaseGeometry(proxy);
+    inspected_renderer.end_frame();
+
+    // The target consumed its first compiled-geometry identity through the host proxy.
+    const Rml::CompiledGeometryHandle next_target_geometry = make_quad(inspected_renderer);
+    REQUIRE(next_target_geometry == 2);
+    inspected_renderer.ReleaseGeometry(next_target_geometry);
+}
+
 TEST_CASE("RmlUi bgfx render interface release paths tolerate stale handles")
 {
     BgfxNoopScope bgfx;

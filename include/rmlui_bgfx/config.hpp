@@ -257,6 +257,12 @@ struct RendererConfig {
     // over it. This applies equally to the default backbuffer and `output_framebuffer`. Offscreen
     // child layers still clear normally.
     bool preserve_backbuffer = false;
+    // Route transient geometry compiled through this interface to another rmlui-bgfx interface
+    // whose frame is currently active. RmlUi's built-in debugger needs this when its UI is hosted in
+    // one Context while outline/element-overlay geometry is emitted from that host RenderManager
+    // during rendering of a different inspected Context. Disabled by default because ordinary
+    // application contexts should never redirect compiled geometry across render interfaces.
+    bool route_transient_geometry_to_active_renderer = false;
 };
 
 } // namespace rmlui_bgfx
